@@ -1,0 +1,75 @@
+---
+title: "R Notebook"
+output: md_document
+---
+
+```{r}
+# Load 
+load("../data/df _IBs_1_zscore_processing_speed_final.Rdata")
+```
+
+
+```{r}
+# Run the mediation (significant after FDR correction): 
+library(mediation)
+
+# 1) Fit the mediator model 
+model_M <- lm(ICAM1 ~ s_psy_abus_CAT + age + sex + bmi + SES + phys_act + depression,
+  data = df_IBs_1_zscore_processing_speed_final
+)
+
+# 2) Fit the outcome model (Executive Func) 
+model_Y <- lm(cf_zscore_processing_speed ~ s_psy_abus_CAT + ICAM1 + age + sex + bmi + SES + phys_act + depression,
+  data = df_IBs_1_zscore_processing_speed_final
+)
+
+# 3) Run the mediation 
+# Using min/max of stressor as control/treat
+min_val <- min(df_IBs_1_zscore_processing_speed_final$s_psy_abus_CAT, na.rm=TRUE)
+max_val <- max(df_IBs_1_zscore_processing_speed_final$s_psy_abus_CAT, na.rm=TRUE)
+
+med_out <- mediate(
+  model.m  = model_M,
+  model.y  = model_Y,
+  treat  = "s_psy_abus_CAT",
+  mediator = "ICAM1",
+  robustSE = TRUE,
+  sims = 1000,
+  control.value = min_val,
+  treat.value = max_val
+)
+
+med_sum <- summary(med_out)
+med_sum
+
+
+# 4) Bootstrap‐based sensitivity analysis 
+sens_out <- medsens(med_out,
+  effect.type  = "indirect", # ACME
+  rho.by  = 0.05
+)
+
+# 6) Extract the critical sensitivity values 
+sens_tab <- summary(sens_out)
+
+rho_star <- sens_tab[["Rho"]]  # ρ at which CI crosses 0
+R2_med <- sens_tab[["R^2_M~R^2_Y~"]]  # R2_med (at ρ*)
+R2_out <- sens_tab[["R^2_M*R^2_Y*"]] # R2_out (at ρ*)
+
+cat("\n Sensitivity Analysis Results: \n",
+    "Critical ρ  (ACME CI to 0):", rho_star, "\n",
+    "R2 (mediator) at ρ*  :", R2_med,  "\n",
+    "R2 (outcome)  at ρ*  :", R2_out,  "\n"
+)
+
+
+
+```
+
+
+
+
+
+
+
+

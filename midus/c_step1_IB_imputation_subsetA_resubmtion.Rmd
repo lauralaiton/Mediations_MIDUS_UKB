@@ -1,0 +1,397 @@
+---
+title: "step1_IB_imputation_missing_values_subsetA"
+output: md_document
+---
+
+## 0) Preprocessing:
+
+```{r}
+#### 1) Read the tables with Stress, CP, IB and covariates:
+raw_complete_IB_dataset= read.csv("../data/MIDUS_data_mediations_cleaned_correct.csv") # dataset already cleaned (All non-valid values where replaced by NA)
+
+### 2) Read Inflammation-related gene expression datasets:
+library(haven)
+# MIDUS Refresher 1:
+REF1_GE_infl=read_sav("../data/MR_P6_RNAGENE_N863_MRID_20200605.sav")
+
+```
+
+
+### a) Reverse the corresponding stress variables:
+
+Some stress variables are coded in reverse. This ensures that all stressors are coded with low values meaning low stress levels and high values meaning high stress levels
+
+```{r}
+### 1) Reverse the stress variables whose levels go from 1 to 4:
+str_1_4  <- c("A1SE11", "A1SE14F", "A1SE14H", "A1SE14I", "A1SE16F",  "A1SE16H", "A1SE16I", "A1SE17A", "A1SE17B", "A1SE17C",  "A1SE17D", "A1SE17E", "A1SE17F", "A1SE17G", "A1SE17H", "A1SE17I", "A1SE17J", "A1SE17K", "A1SE17L", "A1SE17M", "A1SE17N", "A1SE17O", "C1SJ4H", "C1SJ4J", "C1SJ8F", "C1SJ8H")
+
+table(raw_complete_IB_dataset$A1SE17D)
+
+# Reverse mapping function for values 1 to 4:
+reverse_values_1_4 <- function(x) {
+  return(5 - x)
+}
+# Apply the function to each variable using a loop:
+for (var in str_1_4) {
+  raw_complete_IB_dataset[[var]] <- reverse_values_1_4(raw_complete_IB_dataset[[var]])
+}
+
+table(raw_complete_IB_dataset$A1SE17D)
+
+
+### 2) Reverse the stress variable whose levels go from 1 to 6:
+table(raw_complete_IB_dataset$A1PC3)
+# Reverse mapping function for values 1 to 6:
+reverse_values_1_5 <- function(x) {
+  return(7 - x)
+}
+# Apply the function:
+raw_complete_IB_dataset$A1PC3 <- reverse_values_1_5(raw_complete_IB_dataset$A1PC3)
+table(raw_complete_IB_dataset$A1PC3)
+
+
+# 3) Reverse the stress variable whose levels go from 1 to 2:
+table(raw_complete_IB_dataset$A1PC14)
+# Define the reverse mapping function for values 1 and 2
+reverse_values_1_2 <- function(x) {
+  return(ifelse(x == 1, 2, ifelse(x == 2, 1, x)))
+}
+# Apply the function:
+raw_complete_IB_dataset$A1PC14 <- reverse_values_1_2(raw_complete_IB_dataset$A1PC14)
+table(raw_complete_IB_dataset$A1PC14)
+```
+
+
+
+### b) Merge M3_GE_infl and REF1_GE_infl datasets: 
+
+```{r}
+# Extract column labels to know what each column means:
+column_labels_REF1 <- sapply(REF1_GE_infl, attr, "label")
+```
+
+```{r}
+# 1) Create a new dataset with the same columns from REF1:
+# Convert all columns of dbl+lbl type to plain numeric:
+library(dplyr)
+REF1_GE_infl_num = REF1_GE_infl %>%
+  mutate(across(where(is.labelled), as.numeric))
+  # Handle the ID column:
+  REF1_GE_infl_num$MRID = as.numeric(REF1_GE_infl_num$MRID)
+
+# EXTRACT ONLY the individuals with GE available:
+REF1_GE_infl_aval=REF1_GE_infl_num$RA6RAVAIL==1
+REF1_GE_infl_num=REF1_GE_infl_num[REF1_GE_infl_aval, ]  
+
+# Take the columns ID, plate number (covariate for gene expression), and all genes:
+ref1_GE_new= REF1_GE_infl_num[, c(1, 3, 6:ncol(REF1_GE_infl_num))]
+names(ref1_GE_new)
+
+merged_GE_dataset = ref1_GE_new
+
+```
+
+### c) Merge both datasets (all_except_GE + GE data) to create a complete dataset:
+
+```{r}
+## Merge the two datasets on the MIDUSID column:
+# Change the ID column name of GE dataset 
+names(merged_GE_dataset)[1] <- "MIDUSID"
+# Merge the datasets:
+whole_dataset_all_genes <- merge(raw_complete_IB_dataset, merged_GE_dataset, by = "MIDUSID", all.x = TRUE)
+
+#### Select only European ancestry individuals (white):
+WHOLE_dataset_white_all_genes=subset(whole_dataset_all_genes,C1PF7A==1)
+
+```
+
+
+```{r}
+# Save this dataset "WHOLE_dataset_white_all_genes" and use it to create the SUBSET B for GE mediations:
+save(WHOLE_dataset_white_all_genes, file = "../data/WHOLE_dataset_white_all_genes.RData")
+
+```
+
+
+## 1) Creation of SUBSET for INFLAMMATION regressions (SUBSET A):
+
+```{r}
+# 1) List of all 50 stressors:
+stress_all_vars = c("A1PC3", "A1PC14", "A1SE9", "A1SE11", "A1SE14C", "A1SE14D", "A1SE14E", "A1SE14F", "A1SE14G", "A1SE14H", "A1SE14I", "A1SE14J", "A1SE14K", "A1SE15", "A1SE16C", "A1SE16D", "A1SE16E", "A1SE16F", "A1SE16G", "A1SE16H", "A1SE16I", "A1SE16J", "A1SE16K", "A1SE17A", "A1SE17B", "A1SE17C", "A1SE17D", "A1SE17E", "A1SE17F", "A1SE17G", "A1SE17H", "A1SE17I", "A1SE17J", "A1SE17K", "A1SE17L", "A1SE17M", "A1SE17N", "A1SE17O", "C1SJ1", "C1SJ4A", "C1SJ4B", "C1SJ4C", "C1SJ4H", "C1SJ4J", "C1SJ5", "C1SJ8A", "C1SJ8B", "C1SJ8C", "C1SJ8F", "C1SJ8H")
+
+# 2) List of IBs:
+IBs <- c("C4BCRP", "C4BMSDIL6", "C4BFGN", "C4BSESEL", "C4BSICAM", "C4BMSDTNFa")
+
+# 3) List the covariates (or common variables) used in all models:
+common_vars <- c("MIDUSID", "C1PRSEX", "C1PRAGE", "C1PB1", "C1SBMI", "COHORT", "C1SA26F", "C1STINC", "C1PHHSIZE", "C1SA11T")
+
+# 4) List of CF tasks:
+CFs = c("C3TWLITU", "C3TDBS", "C3TCTFLU", "C3TNSTOT", "C3TBKTOT", "C3TSCGBA", "C3TEM", "C3TEF")
+
+### Group all variables that are going to use in IB regressions and mediations:
+all_vars=c(stress_all_vars, IBs, common_vars, CFs)
+```
+
+
+```{r}
+####### 1) WHITE group:
+subset_white_mediations= WHOLE_dataset_white_all_genes[, all_vars]
+
+# Count how many valid data each variable has:
+non_na_counts = colSums(!is.na(subset_white_mediations))
+non_na_counts 
+
+# Count complete cases:
+sum(complete.cases(subset_white_mediations))
+
+```
+
+**NOTE:** Although IBs are the columns with more NA values (~ 1200 valid values), the **complete cases** of this full dataset is only **~300 rows**!!! 
+Therefore, I have to clean the data to get more complete cases. 
+
+
+#### Cleaning dataset:
+
+**Creating <16% missing - dataset**
+
+```{r}
+library(naniar)
+library(dplyr)
+# Visualize RAW dataset:
+vis_miss(subset_white_mediations)
+
+#######  Filter 1:
+# Retain individuals with AT LEAST ONE non-missing inflammation biomarker value (it is the same that filter out individuals with all IB=NA values)
+subset_white_mediations_2 <- subset_white_mediations %>%
+  filter(rowSums(!is.na(subset(., select = IBs))) >= 1)
+
+vis_miss(subset_white_mediations_2, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+```
+
+
+
+```{r}
+#######  Filter 2:
+# Remove individuals with > 5 NA in stressors (retain individuals with at least 45 non-missing values) 
+subset_white_mediations_3= subset_white_mediations_2 %>%
+  filter(rowSums(!is.na(subset(., select = stress_all_vars))) >= 45)
+vis_miss(subset_white_mediations_3, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+```
+
+
+```{r}
+#######  Filter 3:
+# Abuse related variables "17....):
+abuse_var= c( "A1SE17E", "A1SE17J", "A1SE17O", "A1SE17I", "A1SE17D", "A1SE17N") 
+
+subset_white_mediations_4 = subset_white_mediations_3  %>%
+  filter(
+    !(rowSums(is.na(subset(., select = abuse_var))) >= 4) # Minimum= 4. less than that, decreseases the % too much
+  )
+
+dim(subset_white_mediations_3)
+dim(subset_white_mediations_4)
+vis_miss(subset_white_mediations_4, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+```
+
+
+```{r}
+#######  Filter 4:
+
+# To remove the other 1%, I will select them randomly from people with NA data in those 5 streassors that have > 16%:
+str_5=c("A1SE17E", "A1SE17J", "A1SE17O", "A1SE17M")
+
+# 1. Append a helper column counting NAs across str_5
+data_miss <- subset_white_mediations_4 %>%
+  mutate(miss_str5 = rowSums(is.na(across(all_of(str_5)))))
+
+# 2. Find the row-indices of the top most-missing (ties are broken by order in the data)
+rows_to_remove <- head(order(data_miss$miss_str5, decreasing = TRUE), 75)
+
+# 3. Slice those rows out, and drop the helper column
+subset_white_mediations_5 <- data_miss %>%
+  slice(-rows_to_remove) %>%
+  dplyr::select(-miss_str5)
+
+dim(subset_white_mediations_4)    
+dim(subset_white_mediations_5)    
+
+vis_miss(subset_white_mediations_5, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+```
+
+
+
+```{r}
+
+#######  Filter 5:
+
+#  To remove the other 1% (10 individuals) I will select them randomly from people with NA data in those 5 stressors that have > 18%:
+str_x= c("A1SE17M", "A1SE17H", "A1SE17C", "A1SE17I", "A1SE17N")
+
+# 1. Append a helper column counting NAs across str_5
+data_miss <- subset_white_mediations_5 %>%
+  mutate(miss_str5 = rowSums(is.na(across(all_of(str_x)))))
+
+# 2. Find the row-indices of the top most-missing (ties are broken by order in the data)
+rows_to_remove <- head(order(data_miss$miss_str5, decreasing = TRUE), 6)
+
+# 3. Slice those rows out, and drop the helper column
+subset_white_mediations_6 <- data_miss %>%
+  slice(-rows_to_remove) %>%
+  dplyr::select(-miss_str5)
+
+dim(subset_white_mediations_5)    
+dim(subset_white_mediations_6)    
+
+vis_miss(subset_white_mediations_6, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+
+```
+
+
+## 2) Imputation:
+
+```{r}
+### Impute all the variables except by IBs: 
+
+# 1) Exclude IBs from the dataset: 
+library(dplyr)
+
+subset_white_to_impute= subset_white_mediations_6[ , !(names(subset_white_mediations_6) %in% IBs)]
+str(subset_white_to_impute)
+
+# 2) Split the dataset by sex: 
+subset_white_to_impute_M= subset(subset_white_to_impute, C1PRSEX==1)
+subset_white_to_impute_F= subset(subset_white_to_impute, C1PRSEX == 2)
+
+nrow(subset_white_to_impute_M)
+
+```
+
+
+```{r}
+###### Impute the data:
+
+### 1) Male group Imputation: 
+# Perform multiple imputation:
+library(mice)
+subset_white_imputed_M <- mice(subset_white_to_impute_M, m = 1, method = 'pmm', maxit = 50, seed = 500)
+# Extract the complete dataset:
+subset_white_imputed_M_complete <- complete(subset_white_imputed_M)
+head(subset_white_imputed_M_complete)
+
+# Visualize the NA data patterns: 
+vis_miss(subset_white_imputed_M_complete)
+
+
+### 2) Female group Imputation: 
+subset_white_imputed_F <- mice(subset_white_to_impute_F, m = 1, method = 'pmm', maxit = 50, seed = 500)
+# Extract the complete dataset:
+subset_white_imputed_F_complete <- complete(subset_white_imputed_F)
+
+# Visualize the NA data patterns: 
+vis_miss(subset_white_imputed_F_complete)
+```
+
+```{r}
+### Re-merge the 2 sex groups:
+subset_white_imputed_complete=rbind(subset_white_imputed_F_complete, subset_white_imputed_M_complete)
+head(subset_white_imputed_complete)
+
+# Create a dataset with only the IBs: 
+vars= c(IBs, "MIDUSID")
+IBs_white_df= subset_white_mediations_2[ , (names(subset_white_mediations_2) %in% vars)]
+head(IBs_white_df)
+
+# Merge the imputed data with the IBs:
+subset_white_imputed_complete_ib= merge(subset_white_imputed_complete, IBs_white_df, by="MIDUSID")
+str(subset_white_imputed_complete_ib)
+```
+
+
+```{r}
+##### Create the FINAL DATASET for white population using only complete cases: 
+complete_cases_white=complete.cases(subset_white_imputed_complete_ib)
+sum(complete_cases_white)
+
+# Subset the dataframe to include only complete cases:
+subset_white_final_IB = subset_white_imputed_complete_ib[complete_cases_white, ]
+str(subset_white_final_IB)
+```
+
+```{r}
+### Some subset (A) STATS: 
+
+# Age: 
+range(subset_white_final_IB$C1PRAGE)
+mean(subset_white_final_IB$C1PRAGE)
+sd(subset_white_final_IB$C1PRAGE)
+
+# Sex:
+# Females % : 
+(sum(subset_white_final_IB$C1PRSEX == 2) / sum(!is.na(subset_white_final_IB$C1PRSEX))) * 100
+
+```
+
+#### - Creation of SES variable:
+
+```{r}
+# Create the SES using the 2 variables that compound it (Education, household income). The other variable (occupational prestige) was not available for these 2 waves and nothing similar was measured in MIDUS. 
+
+# 1) Adjust income for household size: 
+subset_white_final_IB= subset_white_final_IB %>% 
+  mutate(adjusted_income = C1STINC / C1PHHSIZE)
+
+# 2) Standardize the variables (z-score):
+subset_white_final_IB = subset_white_final_IB %>%
+  mutate(
+    z_education = scale(C1PB1, center = TRUE, scale = TRUE),
+    z_income = scale(adjusted_income, center = TRUE, scale = TRUE)
+  )
+
+
+# 3) Compute SES as the average of the z-scores:
+subset_white_final_IB = subset_white_final_IB %>%
+  mutate(SES = (z_education + z_income) / 2)
+
+
+head(subset_white_final_IB[, c("C1PB1", "C1STINC", "C1PHHSIZE", "adjusted_income", "z_education", "z_income", "SES")])
+
+```
+
+#### -  Filter individuals with 3 Diseases: 
+
+I am removing all individuals with history (diagnosed) of: 
+- cancer (current quimiotherapy)
+- Parkinson's disease
+- other neurological disorder
+ 
+
+```{r}
+ind_diseases= read.csv("../data/individuals_diseases_few.csv")
+```
+
+
+
+```{r}
+# Remove individuals with IDs listed in ind_diseases$diseases
+dim(subset_white_final_IB)
+subset_white_final_IB<- subset_white_final_IB[!subset_white_final_IB$MIDUSID %in% ind_diseases$diseases,]
+dim(subset_white_final_IB)
+
+```
+
+Final N = 276 individuals x 78 columns (subset A)  
+
+
+```{r}
+##### Save this RAW IB dataset (subset A) as .RData: 
+save(subset_white_final_IB, file = "../data/subset_white_final_IB.RData")
+
+```
+
+
+

@@ -1,0 +1,950 @@
+---
+title: "step2_UKB_IB_StressCat_Diagnostics_Transformations"
+output: md_document
+---
+
+
+```{r}
+# Read all 6 subsets:
+load("../data/df_CRP_1pairsm_rt.Rdata")
+load("../data/df_CRP_2trailm_as.Rdata")
+load("../data/df_CRP_3matpat_pal.Rdata")
+load("../data/df_CRP_4numem.Rdata")
+load("../data/df_CRP_5fluidin.Rdata")
+load("../data/df_CRP_6symbds.Rdata")
+load("../data/df_CRP_7towerre.Rdata")
+
+load("../data/df_IL6_1pairsm_rt.Rdata")
+load("../data/df_IL6_2trailm_as.Rdata")
+load("../data/df_IL6_3matpat_pal.Rdata")
+load("../data/df_IL6_4numem.Rdata")
+load("../data/df_IL6_5fluidin.Rdata")
+load("../data/df_IL6_6symbds.Rdata")
+load("../data/df_IL6_7towerre.Rdata")
+
+load("../data/df_IBs_1pairsm_rt.Rdata")
+load("../data/df_IBs_2trailm_as.Rdata")
+load("../data/df_IBs_3matpat_pal.Rdata")
+load("../data/df_IBs_4numem.Rdata")
+load("../data/df_IBs_5fluidin.Rdata")
+load("../data/df_IBs_6symbds.Rdata")
+load("../data/df_IBs_7towerre.Rdata")
+
+load("../data/df_CRP_1_zscore_processing_speed.Rdata")
+load("../data/df_CRP_2_zscore_reasoning.Rdata")
+load("../data/df_CRP_3_zscore_executive_function.Rdata")
+load("../data/df_CRP_4_zscore_memory.Rdata")
+
+load("../data/df_IL6_1_zscore_processing_speed.Rdata")
+load("../data/df_IL6_2_zscore_reasoning.Rdata")
+load("../data/df_IL6_3_zscore_executive_function.Rdata")
+load("../data/df_IL6_4_zscore_memory.Rdata")
+
+load("../data/df_IBs_1_zscore_processing_speed.Rdata")
+load("../data/df_IBs_2_zscore_reasoning.Rdata")
+load("../data/df_IBs_3_zscore_executive_function.Rdata")
+load("../data/df_IBs_4_zscore_memory.Rdata")
+
+```
+
+```{r}
+# Create a copy of the subsets to make changes and save final subsets for mediations:
+
+# CRP variables
+df_CRP_1pairsm_rt_final = df_CRP_1pairsm_rt
+df_CRP_2trailm_as_final = df_CRP_2trailm_as
+df_CRP_3matpat_pal_final = df_CRP_3matpat_pal
+df_CRP_4numem_final = df_CRP_4numem
+df_CRP_5fluidin_final = df_CRP_5fluidin
+df_CRP_6symbds_final = df_CRP_6symbds
+df_CRP_7towerre_final = df_CRP_7towerre
+
+# IL6 variables
+df_IL6_1pairsm_rt_final = df_IL6_1pairsm_rt
+df_IL6_2trailm_as_final = df_IL6_2trailm_as
+df_IL6_3matpat_pal_final = df_IL6_3matpat_pal
+df_IL6_4numem_final = df_IL6_4numem
+df_IL6_5fluidin_final = df_IL6_5fluidin
+df_IL6_6symbds_final = df_IL6_6symbds
+df_IL6_7towerre_final = df_IL6_7towerre
+
+# IBs variables
+df_IBs_1pairsm_rt_final = df_IBs_1pairsm_rt
+df_IBs_2trailm_as_final = df_IBs_2trailm_as
+df_IBs_3matpat_pal_final = df_IBs_3matpat_pal
+df_IBs_4numem_final = df_IBs_4numem
+df_IBs_5fluidin_final = df_IBs_5fluidin
+df_IBs_6symbds_final = df_IBs_6symbds
+df_IBs_7towerre_final = df_IBs_7towerre
+
+# CRP z-scores
+df_CRP_1_zscore_processing_speed_final = df_CRP_1_zscore_processing_speed
+df_CRP_2_zscore_reasoning_final = df_CRP_2_zscore_reasoning
+df_CRP_3_zscore_executive_function_final = df_CRP_3_zscore_executive_function
+df_CRP_4_zscore_memory_final = df_CRP_4_zscore_memory
+
+# IL6 z-scores
+df_IL6_1_zscore_processing_speed_final = df_IL6_1_zscore_processing_speed
+df_IL6_2_zscore_reasoning_final = df_IL6_2_zscore_reasoning
+df_IL6_3_zscore_executive_function_final = df_IL6_3_zscore_executive_function
+df_IL6_4_zscore_memory_final = df_IL6_4_zscore_memory
+
+# IBs z-scores
+df_IBs_1_zscore_processing_speed_final = df_IBs_1_zscore_processing_speed
+df_IBs_2_zscore_reasoning_final = df_IBs_2_zscore_reasoning
+df_IBs_3_zscore_executive_function_final = df_IBs_3_zscore_executive_function
+df_IBs_4_zscore_memory_final = df_IBs_4_zscore_memory
+
+
+
+```
+
+
+# 1) Diagnostics and transformations:
+
+### A) Model_M = IB ~ Stressor:
+
+I am going to choose the larger subset since all subsets have the same stressors and IBs:
+
+#### CRP:
+
+The largest subset for CRP mediations is *df_CRP_1pairsm_rt_final*
+
+```{r}
+# List of stressors: 
+stressors= c("s_phys_abus_CAT", "s_psy_abus_CAT", "s_phys_abus", "s_sex_mol", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_neglect", "s_loneliness")
+
+#### 1) Diagnostics using original data:
+
+# Set output directory for plots
+dir.create("../outs/Diagnostics", showWarnings = FALSE)
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_stress_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  # Define the model: IB ~ stress: 
+    model <- glm(as.formula(paste("CRP ~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+                 family = gaussian(link = "identity"),
+                 data= df_CRP_1pairsm_rt_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+    plot(model, main = paste("Model: CRP ~", stress))
+    hist(residuals(model), main = paste("Model: CRP ~", stress))
+    }))
+}
+
+dev.off()
+```
+The residuals are skewed and non-homogenuosly distributed --> I will transform CRP (IN ALL 3 SUBSETS):
+
+
+```{r}
+#### 2) Apply inverse-normal transformation to CRP in all 3 datasets:
+cat("Before transformation: ", summary(df_CRP_1pairsm_rt_final$CRP), "\n")
+
+# Apply inverse normal transformation to CRP variable for each dataset
+
+df_CRP_1pairsm_rt_final$CRP = qnorm((rank(df_CRP_1pairsm_rt_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_1pairsm_rt_final$CRP)))
+df_CRP_2trailm_as_final$CRP = qnorm((rank(df_CRP_2trailm_as_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_2trailm_as_final$CRP)))
+df_CRP_3matpat_pal_final$CRP = qnorm((rank(df_CRP_3matpat_pal_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_3matpat_pal_final$CRP)))
+df_CRP_4numem_final$CRP = qnorm((rank(df_CRP_4numem_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_4numem_final$CRP)))
+df_CRP_5fluidin_final$CRP = qnorm((rank(df_CRP_5fluidin_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_5fluidin_final$CRP)))
+df_CRP_6symbds_final$CRP = qnorm((rank(df_CRP_6symbds_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_6symbds_final$CRP)))
+df_CRP_7towerre_final$CRP = qnorm((rank(df_CRP_7towerre_final$CRP, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_7towerre_final$CRP)))
+
+
+cat("After transformation: ", summary(df_CRP_1pairsm_rt_final$CRP))
+```
+
+
+
+```{r}
+#### 3) Diagnostics using transformed CRP:
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_stress_lm_transf.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  # Define the model: IB ~ stress: 
+    model <- glm(as.formula(paste("CRP ~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+                 family = gaussian(link = "identity"),
+                 data= df_CRP_1pairsm_rt_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+    plot(model, main = paste("Model: CRP_trans ~", stress))
+    hist(residuals(model), main = paste("Model: CRP_trans ~", stress))
+    }))
+}
+
+dev.off()
+
+```
+
+#### IL6:
+
+The largest subset for IL6 mediations is *df_IL6_1pairsm_rt_final*
+  
+```{r}
+# List of stressors: 
+stressors= c("s_phys_abus_CAT", "s_psy_abus_CAT", "s_phys_abus", "s_sex_mol", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_neglect", "s_loneliness")
+
+#### 1) Diagnostics using original data:
+
+
+# Set output directory for plots
+dir.create("../outs/Diagnostics", showWarnings = FALSE)
+
+pdf("../outs/Diagnostics/Diagnostics_IL6_stress_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  # Define the model: IB ~ stress: 
+  model <- glm(as.formula(paste("IL6 ~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+               family = gaussian(link = "identity"),
+               data= df_IL6_1pairsm_rt_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model, main = paste("Model: IL6 ~", stress))
+    hist(residuals(model), main = paste("Model: IL6 ~", stress))
+  }))
+}
+
+dev.off()
+```
+The residuals are skewed and non-homogenuosly distributed --> I will transform IL6 (IN ALL 3 SUBSETS):
+  
+  
+```{r}
+#### 2) Apply inverse-normal transformation to IL6 in all 3 datasets:
+cat("Before transformation: ", summary(df_IL6_1pairsm_rt_final$IL6), "\n")
+
+# Apply inverse normal transformation to IL6 variable for each dataset
+
+df_IL6_1pairsm_rt_final$IL6 = qnorm((rank(df_IL6_1pairsm_rt_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_1pairsm_rt_final$IL6)))
+df_IL6_2trailm_as_final$IL6 = qnorm((rank(df_IL6_2trailm_as_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_2trailm_as_final$IL6)))
+df_IL6_3matpat_pal_final$IL6 = qnorm((rank(df_IL6_3matpat_pal_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_3matpat_pal_final$IL6)))
+df_IL6_4numem_final$IL6 = qnorm((rank(df_IL6_4numem_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_4numem_final$IL6)))
+df_IL6_5fluidin_final$IL6 = qnorm((rank(df_IL6_5fluidin_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_5fluidin_final$IL6)))
+df_IL6_6symbds_final$IL6 = qnorm((rank(df_IL6_6symbds_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_6symbds_final$IL6)))
+df_IL6_7towerre_final$IL6 = qnorm((rank(df_IL6_7towerre_final$IL6, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_7towerre_final$IL6)))
+
+
+cat("After transformation: ", summary(df_IL6_1pairsm_rt_final$IL6))
+```
+
+
+
+```{r}
+#### 3) Diagnostics using transformed IL6:
+
+
+pdf("../outs/Diagnostics/Diagnostics_IL6_stress_lm_transf.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  # Define the model: IB ~ stress: 
+  model <- glm(as.formula(paste("IL6 ~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+               family = gaussian(link = "identity"),
+               data= df_IL6_1pairsm_rt_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model, main = paste("Model: IL6_trans ~", stress))
+    hist(residuals(model), main = paste("Model: IL6_trans ~", stress))
+  }))
+}
+
+dev.off()
+
+```
+
+
+#### Other IBs:
+
+The largest subset for the mediations with the other 3 IBs is *df_IBs_1pairsm_rt_final*
+  
+```{r}
+#### 1) Diagnostics using original data:
+
+IBs= c("TNF", "ICAM1", "ESEL")
+
+
+pdf("../outs/Diagnostics/Diagnostics_otherIBs_stress_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+    # Define the model: IB ~ stress: 
+    model <- glm(as.formula(paste(IB ,"~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+                 family = gaussian(link = "identity"),
+                 data= df_IBs_1pairsm_rt_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model, main = paste("Model:", IB, "~", stress))
+      hist(residuals(model), main = paste("Model:", IB, "~", stress))
+    }))
+  }
+  
+}
+
+dev.off()
+
+```
+
+TNF and ICAM1 are skewed; ESEL look approximately normal, so I will only transform TNF and ICAM1 (IN ALL 7 SUBSETS): 
+  
+  
+```{r}
+
+#### 2) Transform TNF and ICAM1 in all 3 subsets:
+cat("ICAM1 Before transformation: ", summary(df_IBs_1pairsm_rt_final$ICAM1), "\n")
+
+# Transform TNF and ICAM1 in df_IBs_1pairsm_rt_final
+df_IBs_1pairsm_rt_final$TNF <- qnorm((rank(df_IBs_1pairsm_rt_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_1pairsm_rt_final$TNF)))
+df_IBs_1pairsm_rt_final$ICAM1 <- qnorm((rank(df_IBs_1pairsm_rt_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_1pairsm_rt_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_2trailm_as_final
+df_IBs_2trailm_as_final$TNF <- qnorm((rank(df_IBs_2trailm_as_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_2trailm_as_final$TNF)))
+df_IBs_2trailm_as_final$ICAM1 <- qnorm((rank(df_IBs_2trailm_as_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_2trailm_as_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_3matpat_pal_final
+df_IBs_3matpat_pal_final$TNF <- qnorm((rank(df_IBs_3matpat_pal_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_3matpat_pal_final$TNF)))
+df_IBs_3matpat_pal_final$ICAM1 <- qnorm((rank(df_IBs_3matpat_pal_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_3matpat_pal_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_4numem_final
+df_IBs_4numem_final$TNF <- qnorm((rank(df_IBs_4numem_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_4numem_final$TNF)))
+df_IBs_4numem_final$ICAM1 <- qnorm((rank(df_IBs_4numem_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_4numem_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_5fluidin_final
+df_IBs_5fluidin_final$TNF <- qnorm((rank(df_IBs_5fluidin_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_5fluidin_final$TNF)))
+df_IBs_5fluidin_final$ICAM1 <- qnorm((rank(df_IBs_5fluidin_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_5fluidin_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_6symbds_final
+df_IBs_6symbds_final$TNF <- qnorm((rank(df_IBs_6symbds_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_6symbds_final$TNF)))
+df_IBs_6symbds_final$ICAM1 <- qnorm((rank(df_IBs_6symbds_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_6symbds_final$ICAM1)))
+
+# Transform TNF and ICAM1 in df_IBs_7towerre_final
+df_IBs_7towerre_final$TNF <- qnorm((rank(df_IBs_7towerre_final$TNF, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_7towerre_final$TNF)))
+df_IBs_7towerre_final$ICAM1 <- qnorm((rank(df_IBs_7towerre_final$ICAM1, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_7towerre_final$ICAM1)))
+
+
+cat("ICAM1 After transformation: ", summary(df_IBs_1pairsm_rt_final$ICAM1), "\n")
+```
+
+
+```{r}
+#### 3) Diagnostics using transformed TNF and ICAM:
+to_transIBs= c("TNF", "ICAM1")
+
+pdf("../outs/Diagnostics/Diagnostics_otherIBs_stress_lm_trans.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in to_transIBs){
+    # Define the model: IB ~ stress: 
+    model <- glm(as.formula(paste(IB ,"~", stress, "+ sex + age + bmi + SES + phys_act + depression")), 
+                 family = gaussian(link = "identity"),
+                 data= df_IBs_1pairsm_rt_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model, main = paste("Model:", IB, "_trans ~", stress))
+      hist(residuals(model), main = paste("Model:", IB, "_trans ~", stress))
+    }))
+  }
+  
+}
+
+dev.off()
+
+```
+
+
+### B) Model_Y = CF ~ Stressor + IB
+
+#### Lineal models:
+
+##### 1) Processing speed:
+
+Trail making - trail #1 (Processing Speed) is QUANTITATIVE
+
+```{r}
+
+##### 1) Diagnostics: 
+ 
+### A) CRP: 
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_processesing_speed_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_tm_duration_num_MERG ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+                   data = df_CRP_2trailm_as_final)
+  
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+    plot(model_Y, main = paste("Model: Processing speed ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: Processing speed ~", stress, "+ CRP"))
+    }))
+}
+dev.off()
+
+
+### B) IL6: 
+
+pdf("../outs/Diagnostics/Diagnostics_IL6_processesing_speed_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_tm_duration_num_MERG ~", stress, "+ IL6 + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_IL6_2trailm_as_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: Processing speed ~", stress, "+ IL6"))
+    hist(residuals(model_Y), main = paste("Model: Processing speed ~", stress, "+ IL6"))
+  }))
+}
+dev.off()
+
+
+### C) Other IBs: 
+
+pdf("../outs/Diagnostics/Diagnostics_Other_IBs_processesing_speed_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+  model_Y= glm(as.formula(paste("cf_tm_duration_num_MERG ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_IBs_2trailm_as_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: Processing speed ~", stress, "+", IB))
+    hist(residuals(model_Y), main = paste("Model: Processing speed ~", stress, "+", IB))
+  }))
+  }
+}
+dev.off()
+
+
+```
+All diagnostics for processing speed (outcome) using all IBs look skewed.
+
+```{r}
+#### 2) Apply inverse-normal transformation to processing speed in all 3 datasets:
+
+cat("Before transformation: ", summary(df_CRP_2trailm_as_final$cf_tm_duration_num_MERG), "\n")
+
+df_CRP_2trailm_as_final$cf_tm_duration_num_MERG <- qnorm((rank(df_CRP_2trailm_as_final$cf_tm_duration_num_MERG, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_2trailm_as_final$cf_tm_duration_num_MERG)))
+df_IL6_2trailm_as_final$cf_tm_duration_num_MERG <- qnorm((rank(df_IL6_2trailm_as_final$cf_tm_duration_num_MERG, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_2trailm_as_final$cf_tm_duration_num_MERG)))
+df_IBs_2trailm_as_final$cf_tm_duration_num_MERG <- qnorm((rank(df_IBs_2trailm_as_final$cf_tm_duration_num_MERG, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_2trailm_as_final$cf_tm_duration_num_MERG)))
+
+cat("After transformation: ", summary(df_CRP_2trailm_as_final$cf_tm_duration_num_MERG))
+```
+
+
+```{r}
+#### 3) Diagnostics using transformed processing speed:
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_processesing_speed_lm_transf.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_tm_duration_num_MERG ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+                   data = df_CRP_2trailm_as_final)
+  
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+    plot(model_Y, main = paste("Model: Processing speed ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: Processing speed ~", stress, "+ CRP"))
+    }))
+}
+dev.off()
+
+```
+
+
+
+##### 2) zscore_processing_speed:
+
+```{r}
+##### 1) Diagnostics: 
+
+### A) CRP: 
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_processing_speed_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_processing_speed ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_1_zscore_processing_speed_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_processing_speed ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_processing_speed ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+
+
+### B) Other IBs: 
+
+pdf("../outs/Diagnostics/Diagnostics_Other_IBs_zscore_processing_speed_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_zscore_processing_speed ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = gaussian(link = "identity"),
+                 data = df_IBs_1_zscore_processing_speed_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model_Y, main = paste("Model: zscore_processing_speed ~", stress, "+", IB))
+      hist(residuals(model_Y), main = paste("Model: zscore_processing_speed ~", stress, "+", IB))
+    }))
+  }
+}
+dev.off()
+
+
+
+```
+
+All diagnostics for zscore_processing_speed (outcome) using all IBs look skewed.
+
+
+```{r}
+#### 2) Apply inverse-normal transformation to processing speed in all 3 datasets:
+
+cat("Before transformation: ", summary(df_CRP_1_zscore_processing_speed_final$cf_zscore_processing_speed), "\n")
+
+df_CRP_1_zscore_processing_speed_final$cf_zscore_processing_speed <- qnorm((rank(df_CRP_1_zscore_processing_speed_final$cf_zscore_processing_speed, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_1_zscore_processing_speed_final$cf_zscore_processing_speed)))
+df_IL6_1_zscore_processing_speed_final$cf_zscore_processing_speed <- qnorm((rank(df_IL6_1_zscore_processing_speed_final$cf_zscore_processing_speed, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_1_zscore_processing_speed_final$cf_zscore_processing_speed)))
+df_IBs_1_zscore_processing_speed_final$cf_zscore_processing_speed <- qnorm((rank(df_IBs_1_zscore_processing_speed_final$cf_zscore_processing_speed, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_1_zscore_processing_speed_final$cf_zscore_processing_speed)))
+
+cat("After transformation: ", summary(df_CRP_1_zscore_processing_speed_final$cf_zscore_processing_speed))
+```
+
+
+```{r}
+#### 3) Diagnostics using transformed zscore_processing_speed:
+
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_processing_speed_lm_trans.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_processing_speed ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_1_zscore_processing_speed_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_processing_speed ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_processing_speed ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+```
+
+
+##### 3) zscore_reasoning:
+
+```{r}
+##### 1) Diagnostics: 
+
+### A) CRP: 
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_reasoning_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_reasoning ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_2_zscore_reasoning_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_reasoning ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_reasoning ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+
+
+### B) Other IBs: 
+
+pdf("../outs/Diagnostics/Diagnostics_Other_IBs_zscore_reasoning_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_zscore_reasoning ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = gaussian(link = "identity"),
+                 data = df_IBs_2_zscore_reasoning_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model_Y, main = paste("Model: zscore_reasoning ~", stress, "+", IB))
+      hist(residuals(model_Y), main = paste("Model: zscore_reasoning ~", stress, "+", IB))
+    }))
+  }
+}
+dev.off()
+
+
+
+```
+
+All diagnostics for zscore_reasoning (outcome) using all IBs look fine.
+
+##### 4) zscore_executive_function:
+
+```{r}
+##### 1) Diagnostics: 
+
+### A) CRP: 
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_executive_function_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_executive_function ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_3_zscore_executive_function_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_executive_function ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_executive_function ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+
+
+### B) Other IBs: 
+
+pdf("../outs/Diagnostics/Diagnostics_Other_IBs_zscore_executive_function_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_zscore_executive_function ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = gaussian(link = "identity"),
+                 data = df_IBs_3_zscore_executive_function_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model_Y, main = paste("Model: zscore_executive_function ~", stress, "+", IB))
+      hist(residuals(model_Y), main = paste("Model: zscore_executive_function ~", stress, "+", IB))
+    }))
+  }
+}
+dev.off()
+
+
+
+```
+
+All diagnostics for zscore_executive_function (outcome) using all IBs look skewed.
+
+```{r}
+#### 2) Apply inverse-normal transformation to processing speed in all 3 datasets:
+
+cat("Before transformation: ", summary(df_CRP_3_zscore_executive_function_final$cf_zscore_executive_function), "\n")
+
+df_CRP_3_zscore_executive_function_final$cf_zscore_executive_function <- qnorm((rank(df_CRP_3_zscore_executive_function_final$cf_zscore_executive_function, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_3_zscore_executive_function_final$cf_zscore_executive_function)))
+df_IL6_3_zscore_executive_function_final$cf_zscore_executive_function <- qnorm((rank(df_IL6_3_zscore_executive_function_final$cf_zscore_executive_function, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_3_zscore_executive_function_final$cf_zscore_executive_function)))
+df_IBs_3_zscore_executive_function_final$cf_zscore_executive_function <- qnorm((rank(df_IBs_3_zscore_executive_function_final$cf_zscore_executive_function, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_3_zscore_executive_function_final$cf_zscore_executive_function)))
+
+cat("After transformation: ", summary(df_CRP_3_zscore_executive_function_final$cf_zscore_executive_function))
+```
+
+
+```{r}
+#### 3) Diagnostics using transformed zscore_executive_function:
+
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_executive_function_lm_trans.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_executive_function ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_3_zscore_executive_function_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_executive_function ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_executive_function ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+```
+
+##### 5) zscore_memory:
+
+```{r}
+##### 1) Diagnostics: 
+
+### A) CRP: 
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_memory_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_memory ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_4_zscore_memory_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_memory ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_memory ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+
+
+### B) Other IBs: 
+
+pdf("../outs/Diagnostics/Diagnostics_Other_IBs_zscore_memory_lm.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_zscore_memory ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = gaussian(link = "identity"),
+                 data = df_IBs_4_zscore_memory_final)
+    
+    # Plot diagnostic plots for residuals:
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+      plot(model_Y, main = paste("Model: zscore_memory ~", stress, "+", IB))
+      hist(residuals(model_Y), main = paste("Model: zscore_memory ~", stress, "+", IB))
+    }))
+  }
+}
+dev.off()
+
+
+
+```
+
+All diagnostics for zscore_memory (outcome) using all IBs look skewed.
+
+```{r}
+#### 2) Apply inverse-normal transformation to processing speed in all 3 datasets:
+
+cat("Before transformation: ", summary(df_CRP_4_zscore_memory_final$cf_zscore_memory), "\n")
+
+df_CRP_4_zscore_memory_final$cf_zscore_memory <- qnorm((rank(df_CRP_4_zscore_memory_final$cf_zscore_memory, na.last = "keep") - 0.5) / sum(!is.na(df_CRP_4_zscore_memory_final$cf_zscore_memory)))
+df_IL6_4_zscore_memory_final$cf_zscore_memory <- qnorm((rank(df_IL6_4_zscore_memory_final$cf_zscore_memory, na.last = "keep") - 0.5) / sum(!is.na(df_IL6_4_zscore_memory_final$cf_zscore_memory)))
+df_IBs_4_zscore_memory_final$cf_zscore_memory <- qnorm((rank(df_IBs_4_zscore_memory_final$cf_zscore_memory, na.last = "keep") - 0.5) / sum(!is.na(df_IBs_4_zscore_memory_final$cf_zscore_memory)))
+
+cat("After transformation: ", summary(df_CRP_4_zscore_memory_final$cf_zscore_memory))
+```
+
+
+```{r}
+#### 3) Diagnostics using transformed zscore_memory:
+
+pdf("../outs/Diagnostics/Diagnostics_CRP_zscore_memory_lm_trans.pdf", width = 10, height = 5)
+
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_zscore_memory ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = gaussian(link = "identity"),
+               data = df_CRP_4_zscore_memory_final)
+  
+  # Plot diagnostic plots for residuals:
+  # Save plots to PDF only (no console output)
+  par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+  invisible(capture.output({
+    plot(model_Y, main = paste("Model: zscore_memory ~", stress, "+ CRP"))
+    hist(residuals(model_Y), main = paste("Model: zscore_memory ~", stress, "+ CRP"))
+  }))
+}
+dev.off()
+```
+
+
+
+
+#### Poisson models:
+
+The CFs: Pairs matching (Immediate Episodic Memory) and Numeric memory (Working Memory) are COUNT data.
+
+
+```{r}
+library(performance) # to conduct overdispersion test
+
+##### 1) Immediate Episodic Memory:
+
+### A) CRP: 
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_pairs_match_1 ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = poisson(link = "log"),
+                   data = df_CRP_1pairsm_rt_final)
+  
+    # Run Overdispersion Test
+      overdispersion_result <- check_overdispersion(model_Y)
+      
+      # Print results
+      print(paste("Model: Immediate Episodic Memory ~", stress, "+ CRP"))
+      print(overdispersion_result)
+}
+
+
+
+### B) Other IBs: 
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_pairs_match_1 ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = poisson(link = "log"),
+                 data = df_IBs_1pairsm_rt_final)
+    
+    # Run Overdispersion Test
+      overdispersion_result <- check_overdispersion(model_Y)
+      
+      # Print results
+      print(paste("Model: Immediate Episodic Memory ~", stress, "+", IB))
+      print(overdispersion_result)
+  }
+}
+
+
+
+```
+
+All diagnostics for Immediate Episodic Memory (outcome) using all IBs look fine.
+
+
+```{r}
+##### 2) Working Memory:
+
+### A) CRP: 
+for (stress in stressors){
+  model_Y= glm(as.formula(paste("cf_num_memory_MERG ~", stress, "+ CRP + sex + age + bmi + SES + phys_act + depression")),
+               family = poisson(link = "log"),
+                   data = df_CRP_4numem_final)
+  
+    # Run Overdispersion Test
+      overdispersion_result <- check_overdispersion(model_Y)
+      
+      # Print results
+      print(paste("Model: Working Memory ~", stress, "+ CRP"))
+      print(overdispersion_result)
+}
+
+
+
+### B) Other IBs: 
+for (stress in stressors){
+  for (IB in IBs){
+    model_Y= glm(as.formula(paste("cf_num_memory_MERG ~", stress, "+",  IB, " + sex + age + bmi + SES + phys_act + depression")),
+                 family = poisson(link = "log"),
+                 data = df_IBs_4numem_final)
+    
+    # Run Overdispersion Test
+      overdispersion_result <- check_overdispersion(model_Y)
+      
+      # Print results
+      print(paste("Model: Working Memory ~", stress, "+", IB))
+      print(overdispersion_result)
+  }
+}
+
+```
+
+All diagnostics for Working Memory (outcome) using all IBs look fine.
+
+
+
+```{r}
+# Save each of the 6 modified subsets as .RData:
+
+# Save CRP final datasets
+save(df_CRP_1pairsm_rt_final, file = "../data/df_CRP_1pairsm_rt_final.Rdata")
+save(df_CRP_2trailm_as_final, file = "../data/df_CRP_2trailm_as_final.Rdata")
+save(df_CRP_3matpat_pal_final, file = "../data/df_CRP_3matpat_pal_final.Rdata")
+save(df_CRP_4numem_final, file = "../data/df_CRP_4numem_final.Rdata")
+save(df_CRP_5fluidin_final, file = "../data/df_CRP_5fluidin_final.Rdata")
+save(df_CRP_6symbds_final, file = "../data/df_CRP_6symbds_final.Rdata")
+save(df_CRP_7towerre_final, file = "../data/df_CRP_7towerre_final.Rdata")
+
+# Save IL6 final datasets
+save(df_IL6_1pairsm_rt_final, file = "../data/df_IL6_1pairsm_rt_final.Rdata")
+save(df_IL6_2trailm_as_final, file = "../data/df_IL6_2trailm_as_final.Rdata")
+save(df_IL6_3matpat_pal_final, file = "../data/df_IL6_3matpat_pal_final.Rdata")
+save(df_IL6_4numem_final, file = "../data/df_IL6_4numem_final.Rdata")
+save(df_IL6_5fluidin_final, file = "../data/df_IL6_5fluidin_final.Rdata")
+save(df_IL6_6symbds_final, file = "../data/df_IL6_6symbds_final.Rdata")
+save(df_IL6_7towerre_final, file = "../data/df_IL6_7towerre_final.Rdata")
+
+# Save IBs final datasets
+save(df_IBs_1pairsm_rt_final, file = "../data/df_IBs_1pairsm_rt_final.Rdata")
+save(df_IBs_2trailm_as_final, file = "../data/df_IBs_2trailm_as_final.Rdata")
+save(df_IBs_3matpat_pal_final, file = "../data/df_IBs_3matpat_pal_final.Rdata")
+save(df_IBs_4numem_final, file = "../data/df_IBs_4numem_final.Rdata")
+save(df_IBs_5fluidin_final, file = "../data/df_IBs_5fluidin_final.Rdata")
+save(df_IBs_6symbds_final, file = "../data/df_IBs_6symbds_final.Rdata")
+save(df_IBs_7towerre_final, file = "../data/df_IBs_7towerre_final.Rdata")
+
+# Save CRP z-score datasets
+save(df_CRP_1_zscore_processing_speed_final, file = "../data/df_CRP_1_zscore_processing_speed_final.Rdata")
+save(df_CRP_2_zscore_reasoning_final, file = "../data/df_CRP_2_zscore_reasoning_final.Rdata")
+save(df_CRP_3_zscore_executive_function_final, file = "../data/df_CRP_3_zscore_executive_function_final.Rdata")
+save(df_CRP_4_zscore_memory_final, file = "../data/df_CRP_4_zscore_memory_final.Rdata")
+
+# Save IL6 z-score datasets
+save(df_IL6_1_zscore_processing_speed_final, file = "../data/df_IL6_1_zscore_processing_speed_final.Rdata")
+save(df_IL6_2_zscore_reasoning_final, file = "../data/df_IL6_2_zscore_reasoning_final.Rdata")
+save(df_IL6_3_zscore_executive_function_final, file = "../data/df_IL6_3_zscore_executive_function_final.Rdata")
+save(df_IL6_4_zscore_memory_final, file = "../data/df_IL6_4_zscore_memory_final.Rdata")
+
+# Save IBs z-score datasets
+save(df_IBs_1_zscore_processing_speed_final, file = "../data/df_IBs_1_zscore_processing_speed_final.Rdata")
+save(df_IBs_2_zscore_reasoning_final, file = "../data/df_IBs_2_zscore_reasoning_final.Rdata")
+save(df_IBs_3_zscore_executive_function_final, file = "../data/df_IBs_3_zscore_executive_function_final.Rdata")
+save(df_IBs_4_zscore_memory_final, file = "../data/df_IBs_4_zscore_memory_final.Rdata")
+```
+
+
+
+
+
+
+
+

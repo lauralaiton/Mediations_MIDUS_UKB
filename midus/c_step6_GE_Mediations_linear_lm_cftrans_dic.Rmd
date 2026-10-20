@@ -1,0 +1,685 @@
+---
+title: "Step 6 - GE mediations"
+output: md_document
+---
+
+
+The dataset **"subset_white_final_GE_dic_trans.Rdata"** contains all processed variables needed for GE mediations (**AFTER** gene transformations, and selection of genes associated with at least 1 stress categories).
+
+
+```{r}
+load("../data/subset_white_final_GE_dic_trans.Rdata")
+library(dplyr)
+```
+
+
+## 1) Mediations with CF-Linear:
+
+
+```{r}
+# New gene variables: 
+score_vars = c( "proinflam", "antiviral", "ctra", "ALLcluster1mean", "ALLcluster2mean", "ALLcluster3mean", "ALLcluster4mean", "ALLcluster5mean", "ALLcluster6mean", "ALLcluster8mean", "ALLcluster9mean", "ALLcluster10mean", "ALLcluster1eig", "ALLcluster2eig", "ALLcluster3eig", "ALLcluster4eig", "ALLcluster5eig", "ALLcluster6eig", "ALLcluster8eig", "ALLcluster9eig" )
+
+# List of GENES:
+index_f=which(names(subset_white_final_GE_dic_trans) == "RA6RFOS") # Column number of the first gene
+index_l=which(names(subset_white_final_GE_dic_trans) == "RA6ROASL") # last gene --> Remaining genes are covariates
+# Get the gene names (42 genes):
+  # Extract the names of the columns:
+all_genes = colnames(subset_white_final_GE_dic_trans)[index_f:index_l]
+all_genes
+
+# Combine individual genes and clusters:
+all_genes <- c(all_genes, score_vars)
+
+# List stressors (categories) different than ECONOMIC-HADSHIP:
+stressors_cat <- c( "economic_hardship_ch_score", "emotional_psychological_abuse_ch_score",  "loneliness_ad_score" , "neglect_ch_score", "physical_abuse_ch_score", "social_isolation_ad_score")
+
+subset_white_final_GE_dic_trans$RA6RPLATE = as.factor(subset_white_final_GE_dic_trans$RA6RPLATE)
+```
+
+
+###*CF-Linear:
+
+#### A) Executive Function (C3TCTFLU) - linear:
+
+
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)
+library(mgcv)
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+  ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+      # Determine number of unique values for each stressor
+      unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+      
+      # Decide the maximum k (knots or basis functions) to avoid overfitting:
+      k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+      
+      # Define the GAM model with a dynamic "k": 
+      model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+      model_Y <- glm(as.formula(paste("C3TCTFLU ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = gaussian(link = "identity"), # Quantitative outcome
+                   data = subset_white_final_GE_dic_trans)
+    
+
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                            sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) Executive Function (C3TCTFLU): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+```
+
+
+
+```{r}
+##################### Create the output table to storage the mediation and moderation results:
+
+### Function for marking p-values based on significance:
+# @param pval - the pvalue
+# @return - returns a significance marker similar to how R marks significance
+mark_pvals <- function(pval){
+  if (pval < 0.001){
+    return("***")
+  } else if (pval < 0.01){
+    return("**")
+  } else if (pval < 0.05){
+    return("*")
+  } else if(pval < 0.1){
+    return(".")
+  } else return(" ")
+}
+
+
+### Function to correctly split a "stress_gene" key into its two components.
+# @param key - the combined key, e.g. "economic_hardship_ch_score_RA6RFOS"
+# @param stressors_cat - character vector of all valid stressor category names
+# @return - a list with $stress and $gene
+parse_key <- function(key, stressors_cat){
+  # Find which known stressor name is an exact prefix of this key (followed by "_")
+  matched <- stressors_cat[sapply(stressors_cat, function(s) startsWith(key, paste0(s, "_")))]
+  
+  if (length(matched) == 0){
+    stop("No matching stressor found for key: ", key,
+         " -- check that stressors_cat matches the names used when building mediation_results_s.")
+  }
+  if (length(matched) > 1){
+    # If more than one stressor name is a valid prefix, take the longest match
+    # (avoids partial-prefix collisions between stressor names)
+    matched <- matched[which.max(nchar(matched))]
+  }
+  
+  stress <- matched[1]
+  gene <- sub(paste0("^", stress, "_"), "", key)
+  
+  return(list(stress = stress, gene = gene))
+}
+
+
+### Function for making table of summary mediation results (into csv):
+# @param - med.list: the list containing all the summary stats for the MEDIATION
+# @param - CF: the cognitive function variable
+# @param - sum.df: the pre-existing data frame I want to add the summary to
+# @param - stressors_cat: character vector of all valid stressor category names (needed for correct key parsing)
+tabulate_results <- function(med.list, CF, sum.df = NULL, stressors_cat){
+  # Create a list with column names for the table:
+  c.n <- c("Stressor",  "Gene", "CF",   
+           # 1) Mediations: Indirect effect-ACME results:
+           "MED: Ind_effect_ACME (Estimate)",   "MED: Ind_effect_ACME (CI Lower)",  "MED: Ind_effect_ACME (CI Upper)",  "MED: Ind_effect_ACME (p-value)",   "MED: Ind_effect_ACME (pvalue-marking)", "MED: Proportion_mediated_ACME (avg)",
+           # 2) Mediations: Direct effect-ADE results:
+           "MED: Dir_effect_ADE (Estimate)",    "MED: Dir_effect_ADE (CI Lower)",   "MED: Dir_effect_ADE (CI Upper)",   
+           "MED: Dir_effect_ADE (p-value)", "MED: Dir_effect_ADE (pvalue-marking)")
+  
+  # Initialize a new dataframe:
+  if (is.null(sum.df)){
+    sum.df <- data.frame(matrix(ncol = 14, nrow = 0))
+    colnames(sum.df) <- c.n # Assign column names
+  }
+  
+  # Iterate through all mediation results stored in med.list:
+  for (l in names(med.list)){
+    # FIX: use parse_key() instead of naive strsplit(l, "_"), which broke on multi-word stressor names like "economic_hardship_ch_score".
+    parsed <- parse_key(l, stressors_cat)
+    stressor <- parsed$stress
+    gene <- parsed$gene
+    
+    lSum.df <- summary(med.list[[l]]) # Extract summary results from MEDIATION analysis
+    
+    # Populate the table row by row:
+    new.r <- c(
+      stressor, gene, CF, 
+      # 1) Mediations: Indirect effect-ACME results:
+      lSum.df$d.avg, lSum.df$d.avg.ci[1], lSum.df$d.avg.ci[2], 
+      formatC(lSum.df$d.avg.p, format = "f", digits = 7), # p-value with 5 decimal points
+      mark_pvals(lSum.df$d.avg.p), lSum.df$n.avg,
+      # 2) Mediations: Direct effect-ADE results:
+      lSum.df$z.avg, lSum.df$z.avg.ci[1], lSum.df$z.avg.ci[2], 
+      formatC(lSum.df$z.avg.p, format = "f", digits = 7), 
+      mark_pvals(lSum.df$z.avg.p))
+    
+    # Append each row to the summary dataframe:
+    nr <- nrow(sum.df)
+    sum.df[nr+1,] <- new.r # Add each row below the last existent
+  } 
+  return(sum.df)
+}
+
+GE.df <- tabulate_results(mediation_results_s, "Executive Function (C3TCTFLU)", stressors_cat = stressors_cat)
+
+```
+
+
+
+#### B) Processing Speed (C3TBKTOT_trans) - linear :
+
+
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+  ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+      # Determine number of unique values for each stressor
+      unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+      
+      # Decide the maximum k (knots or basis functions) to avoid overfitting:
+      k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+      
+      # Define the GAM model with a dynamic "k": 
+      model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+      model_Y <- glm(as.formula(paste("C3TBKTOT_trans ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = gaussian(link = "identity"), # Quantitative outcome
+                   data = subset_white_final_GE_dic_trans)
+    
+
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) Processing Speed (C3TBKTOT_trans): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE.df <- tabulate_results(mediation_results_s, "Processing Speed (C3TBKTOT_trans)", GE.df , stressors_cat = stressors_cat)
+
+```
+
+
+#### C) zscore-Episodic memory  (C3TEM_trans) - linear :
+
+  
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+    ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+    # Determine number of unique values for each stressor
+    unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+    
+    # Decide the maximum k (knots or basis functions) to avoid overfitting:
+    k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+    
+    # Define the GAM model with a dynamic "k": 
+    model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+    model_Y <- glm(as.formula(paste("C3TEM_trans ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = gaussian(link = "identity"), # Quantitative outcome
+                   data = subset_white_final_GE_dic_trans)
+    
+    
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+    
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) zscore-Episodic memory  (C3TEM_trans): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE.df <- tabulate_results(mediation_results_s, "zscore-Episodic memory  (C3TEM_trans)", GE.df , stressors_cat = stressors_cat)
+
+```
+
+
+
+#### D) zscore-Executive functioning  (C3TEF) - linear:
+
+  
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+    ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+    # Determine number of unique values for each stressor
+    unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+    
+    # Decide the maximum k (knots or basis functions) to avoid overfitting:
+    k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+    
+    # Define the GAM model with a dynamic "k": 
+    model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+    model_Y <- glm(as.formula(paste("C3TEF ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = gaussian(link = "identity"), # Quantitative outcome
+                   data = subset_white_final_GE_dic_trans)
+    
+    
+    ##### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+    
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+    
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) zscore-Executive functioning (C3TEF): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE.df <- tabulate_results(mediation_results_s, "zscore-Executive functioning (C3TEF)", GE.df , stressors_cat = stressors_cat)
+
+```
+
+
+
+```{r}
+#save(GE_2.df, file="data/GE_2_RESULTS_POISSON.RData")
+write.csv(GE.df, file="../outs/GE_RESULTS_LINEARS_lm_cftrans_dic.csv", row.names = FALSE)
+
+```
+
+
+###*CF-Poisson:
+
+#### E) Immediate Episodic Memory (C3TWLITU) - poisson:
+
+
+```{r}
+
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+  ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+      # Determine number of unique values for each stressor
+      unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+      
+      # Decide the maximum k (knots or basis functions) to avoid overfitting:
+      k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+      
+      # Define the GAM model with a dynamic "k": 
+      model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+      model_Y <- glm(as.formula(paste("C3TWLITU ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = poisson(link = "log"), # Count outcome -> Poisson regression
+                   data = subset_white_final_GE_dic_trans)
+    
+
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) Immediate Episodic Memory (C3TWLITU): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE_2.df <- tabulate_results(mediation_results_s, "Immediate Episodic Memory (C3TWLITU)", stressors_cat = stressors_cat)
+
+```
+
+
+
+
+#### F) Working Memory (C3TDBS) - poisson:
+
+
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+  ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+      # Determine number of unique values for each stressor
+      unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+      
+      # Decide the maximum k (knots or basis functions) to avoid overfitting:
+      k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+      
+      # Define the GAM model with a dynamic "k": 
+      model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+      model_Y <- glm(as.formula(paste("C3TDBS ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = poisson(link = "log"), # Count outcome -> Poisson regression
+                   data = subset_white_final_GE_dic_trans)
+    
+
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) Working Memory (C3TDBS): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE_2.df <- tabulate_results(mediation_results_s, "Working Memory (C3TDBS)", GE_2.df , stressors_cat = stressors_cat)
+
+```
+
+
+
+#### G) Inductive Reasoning (C3TNSTOT) - poisson:
+
+
+```{r}
+library(mediation)
+library(lmtest)
+library(VGAM)  
+
+# Initialize lists to store mediation and moderation results:
+mediation_results_s <- list()
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", gene, "\n")
+    
+  ##### 1) Define the models:
+    
+    ## A) Mediator model: Stress vs GE:
+      # Determine number of unique values for each stressor
+      unique_vals <- length(unique(subset_white_final_GE_dic_trans[[stress]]))
+      
+      # Decide the maximum k (knots or basis functions) to avoid overfitting:
+      k_value <- min(unique_vals - 1, 8)  # e.g k=6 when stressors have 7 unique values (0-6)
+      
+      # Define the GAM model with a dynamic "k": 
+      model_M <- lm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1 + RA6RCD4")), data = subset_white_final_GE_dic_trans)
+    
+    ## B) Outcome model: Stress vs CF + GE:
+      model_Y <- glm(as.formula(paste("C3TNSTOT ~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = poisson(link = "log"), # Count outcome -> Poisson regression
+                   data = subset_white_final_GE_dic_trans)
+    
+
+    #### 2) Calculate min and max of gene variable
+    min_stress_value <- min(subset_white_final_GE_dic_trans[[stress]])
+    max_stress_value <- max(subset_white_final_GE_dic_trans[[stress]])
+    
+    ### 3) Run the mediation analysis 
+    set.seed(1234)
+    mediations_s <- mediate(model_M, model_Y,
+                            treat = stress, # Use stressors as quantitative variables
+                            mediator = gene,
+                            robustSE = TRUE, # This activates robust standard errors
+                             sims = 1000,
+                            treat.value = max_stress_value, # MAX stress value
+                            control.value = min_stress_value) # Minimum stress value
+    
+    # Store results
+    mediation_results_s[[paste(stress, gene, sep = "_")]] <- mediations_s
+
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_s)) {
+  stress_and_gene <- unlist(strsplit(result, "_"))
+  stress <- stress_and_gene[1]
+  gene <- stress_and_gene[2]
+  cat("1) Inductive Reasoning (C3TNSTOT): Mediation result of the stressor:", stress, ", and the gene", gene, ":\n")
+  print(summary(mediation_results_s[[result]]))
+  
+}
+
+
+#### Apply the function to populate the already created output table:
+GE_2.df <- tabulate_results(mediation_results_s, "Inductive Reasoning (C3TNSTOT)", GE_2.df , stressors_cat = stressors_cat)
+
+```
+
+
+
+```{r}
+#save(GE_2.df, file="data/GE_2_RESULTS_POISSON.RData")
+
+write.csv(GE_2.df, file="../outs/GE_2_RESULTS_POISSON_lm_cftrans_dic.csv", row.names = FALSE)
+
+```
+
+

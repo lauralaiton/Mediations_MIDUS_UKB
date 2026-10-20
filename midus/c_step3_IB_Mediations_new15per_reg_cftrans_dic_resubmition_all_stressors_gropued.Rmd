@@ -1,0 +1,669 @@
+---
+title: "step3_IB_Mediations_safe_fallback"
+output: md_document
+---
+
+The dataset **"subset_white_final_IB_dic.Rdata"** contains all processed variables needed for IB mediations (**AFTER** transformations and stress categories creation).
+
+```{r}
+load("../data/subset_white_final_IB_dic.Rdata")
+stressor_categories_score_key=readRDS("../data/stressor_categories_score_key.RData")
+library(dplyr)
+```
+
+
+# 2) AGE - Moderated Mediations:
+
+```{r}
+# List of IBs:
+IBs = c("C4BCRP", "C4BMSDIL6", "C4BSESEL", "C4BSICAM", "C4BMSDTNFa")
+
+# List all new stressors (categories) :
+stressors_cat= stressor_categories_score_key$score_var
+
+```
+
+
+```{r}
+##################### Create the output table to storage the mediation and moderation results:
+
+### Function for marking p-values based on significance:
+# @param pval - the pvalue
+# @return - returns a significance marker similar to how R marks significance
+mark_pvals <- function(pval){
+  if (pval < 0.001){
+    return("***")
+  } else if (pval < 0.01){
+    return("**")
+  } else if (pval < 0.05){
+    return("*")
+  } else if(pval < 0.1){
+    return(".")
+  } else return(" ")
+}
+
+### Function for safely extracting stressor and IB names from result keys:
+# This is needed because some stressor names contain underscores.
+split_stress_ib_key <- function(result_key) {
+  matched_IB <- IBs[sapply(IBs, function(x) endsWith(result_key, paste0("_", x)))]
+  
+  if (length(matched_IB) != 1) {
+    stop("Could not identify a unique IB from result key: ", result_key)
+  }
+  
+  IB <- matched_IB[1]
+  stressor <- sub(paste0("_", IB, "$"), "", result_key)
+  
+  return(list(stressor = stressor, IB = IB))
+}
+
+
+### Function for making table of summary mediation and moderation results (into csv):
+# @param - med.list: the list containing all the summary stats for the MEDIATION
+# @param - mod.list: the list containing all the summary stats for the MODeration
+# @param - moderator: the type of moderator, i.e., sex or age
+# @param - CF: the cognitive function variable
+# @param - sum.df: the pre-existing data frame I want to add the summary to
+tabulate_results <- function(med.list, mod.list, moderator, CF, sum.df = NULL){
+  # Create a list with column names for the table:
+  c.n <- c("Moderator", "Stressor",	"IB",	"CF",	
+           # 1) Mediations: Indirect effect-ACME results:
+           "MED: Ind_effect_ACME (Estimate)",	"MED: Ind_effect_ACME (CI Lower)",	"MED: Ind_effect_ACME (CI Upper)",	
+           "MED: Ind_effect_ACME (p-value)",	"MED: Ind_effect_ACME (pvalue-marking)", "MED: Proportion_mediated_ACME (avg)",
+           # 2) Moderations: Indirect effect-ACME results:
+           "Mod: Ind_effect_ACME (Estimate)",	"Mod: Ind_effect_ACME (CI Lower)",	"Mod: Ind_effect_ACME (CI Upper)",	
+           "Mod: Ind_effect_ACME (p-value)",	"Mod: Ind_effect_ACME (pvalue-marking)", 
+           # 3) Mediations: Direct effect-ADE results:
+           "MED: Dir_effect_ADE (Estimate)",	"MED: Dir_effect_ADE (CI Lower)",	"MED: Dir_effect_ADE (CI Upper)",	
+           "MED: Dir_effect_ADE (p-value)",	"MED: Dir_effect_ADE (pvalue-marking)",
+           # 4) Moderations: Direct effect-ADE results:
+           "Mod: Dir_effect_ADE (Estimate)", "Mod: Dir_effect_ADE (CI Lower)",	"Mod: Dir_effect_ADE (CI Upper)",	
+           "Mod: Dir_effect_ADE (p-value)",	"Mod: Dir_effect_ADE (pvalue-marking)")
+  
+  # Initialize a new dataframe:
+  if (is.null(sum.df)){
+    sum.df <- data.frame(matrix(ncol = 25, nrow = 0))
+    colnames(sum.df) <- c.n # Assign column names
+  }
+  
+  # Iterate through all mediation results stored in med.list:
+  for (l in names(med.list)){
+    # Extract stressor and IB names from the stored keys:
+    stress_and_IB <- split_stress_ib_key(l)
+    stressor <- stress_and_IB$stressor
+    IB <- stress_and_IB$IB
+    lSum.df <- summary(med.list[[l]]) # Extract summary results from MEDIATION analysis
+    lMod.list <- mod.list[[l]] # Extract summary results from MOderation analysis
+    
+    # Populate the table row by row:
+    new.r <- c(
+      moderator, stressor, IB, CF, 
+      # 1) Mediations: Indirect effect-ACME results:
+      lSum.df$d.avg, lSum.df$d.avg.ci[1], lSum.df$d.avg.ci[2], 
+      formatC(lSum.df$d.avg.p, format = "f", digits = 5), # p-value with 5 decimal points
+      mark_pvals(lSum.df$d.avg.p), lSum.df$n.avg,
+      # 2) Moderations: Indirect effect-ACME results:
+      lMod.list[[1]]$statistic, lMod.list[[1]]$conf.int[1], lMod.list[[1]]$conf.int[2], 
+      formatC(lMod.list[[1]]$p.value, format = "f", digits = 5), 
+      mark_pvals(lMod.list[[1]]$p.value), 
+      # 3) Mediations: Direct effect-ADE results:
+      lSum.df$z.avg, lSum.df$z.avg.ci[1], lSum.df$z.avg.ci[2], 
+      formatC(lSum.df$z.avg.p, format = "f", digits = 5), 
+      mark_pvals(lSum.df$z.avg.p),
+      # 4) Moderations: Direct effect-ADE results:
+      lMod.list[[2]]$statistic, lMod.list[[2]]$conf.int[1], lMod.list[[2]]$conf.int[2], 
+      formatC(lMod.list[[2]]$p.value, format = "f", digits = 5), 
+      mark_pvals(lMod.list[[2]]$p.value)
+    )
+    
+    # Append each row to the summary dataframe:
+    nr <- nrow(sum.df)
+    sum.df[nr+1,] <- new.r # Add each row below the last existent
+  } 
+  return(sum.df)
+}
+```
+
+
+
+###*CF-Linear:
+
+I am going to use robust standard errors in the mediations (Model Y = linear models) to mitigate the impact of outliers and slightly skewed residuals.  
+
+```{r}
+library(mediation)
+library(sandwich) # Used to get Heteroskedasticity-consistent standard errors (robust standard errors) (used to allow the fitting of a model that does contain heteroskedastic residuals)
+```
+
+```{r}
+### Helper to run one AGE-moderated mediation with a fallback model:
+# The full model is always tried first. If the full model has NA coefficients because of a singular design matrix, the outcome model is refit without the 3-way interaction stress:IB:age. If needed, the mediator model is also simplified by removing stress:age. This keeps the original modeling strategy whenever possible and only simplifies models that would otherwise fail.
+run_age_mediation_pair <- function(outcome, outcome_family, stress, IB, data,
+                                   sims = 1000, age_low = 45, age_high = 65) {
+  covariates <- "C1PRSEX + SES + C1SBMI + C1SA26F + C1SA11T"
+  
+  formula_M_full <- as.formula(
+    paste(IB, "~", stress, "* C1PRAGE +", covariates)
+  )
+  
+  formula_Y_full <- as.formula(
+    paste(outcome, "~", stress, "*", IB, "* C1PRAGE +", covariates)
+  )
+  
+  # Use the same complete-case data for both models and drop unused factor levels.
+  model_vars <- unique(c(all.vars(formula_M_full), all.vars(formula_Y_full)))
+  model_data <- droplevels(na.omit(data[, model_vars]))
+  
+  stress_values <- sort(unique(model_data[[stress]]))
+  cat("Stress distribution for ", stress, ":\n", sep = "")
+  print(table(model_data[[stress]], useNA = "ifany"))
+  
+  if (length(stress_values) < 2) {
+    cat("Skipping ", stress, " and ", IB, ": stress has fewer than 2 observed values after complete-case filtering.\n", sep = "")
+    return(NULL)
+  }
+  
+  control_stress_value <- min(stress_values)
+  treat_stress_value <- max(stress_values)
+  
+  model_M <- lm(formula_M_full, data = model_data)
+  model_Y <- glm(formula_Y_full, family = outcome_family, data = model_data)
+  model_used <- "full_age_moderated_model"
+  
+  # First fallback: keep age moderation but remove the highest-order outcome interaction.
+  if (anyNA(coef(model_M)) || anyNA(coef(model_Y))) {
+    cat("Singular full model for ", stress, " and ", IB, "; retrying without stress:IB:C1PRAGE.\n", sep = "")
+    
+    formula_Y_no_3way <- as.formula(
+      paste(outcome, "~", stress, "* C1PRAGE +", IB, "* C1PRAGE +", stress, "*", IB, "+", covariates)
+    )
+    
+    model_Y <- glm(formula_Y_no_3way, family = outcome_family, data = model_data)
+    model_used <- "fallback_no_3way_outcome_interaction"
+  }
+  
+  # Second fallback: if the mediator model is singular, remove stress:age there too.
+  if (anyNA(coef(model_M)) || anyNA(coef(model_Y))) {
+    cat("Model still singular for ", stress, " and ", IB, "; retrying with simplified mediator model.\n", sep = "")
+    
+    formula_M_no_interaction <- as.formula(
+      paste(IB, "~", stress, "+ C1PRAGE +", covariates)
+    )
+    
+    formula_Y_no_3way <- as.formula(
+      paste(outcome, "~", stress, "* C1PRAGE +", IB, "* C1PRAGE +", stress, "*", IB, "+", covariates)
+    )
+    
+    model_M <- lm(formula_M_no_interaction, data = model_data)
+    model_Y <- glm(formula_Y_no_3way, family = outcome_family, data = model_data)
+    model_used <- "fallback_no_3way_and_simplified_mediator"
+  }
+  
+  if (anyNA(coef(model_M)) || anyNA(coef(model_Y))) {
+    cat("Skipping ", stress, " and ", IB, ": model still has NA coefficients.\n", sep = "")
+    print(coef(model_M)[is.na(coef(model_M))])
+    print(coef(model_Y)[is.na(coef(model_Y))])
+    return(NULL)
+  }
+  
+  mediations_a <- tryCatch(
+    mediate(
+      model_M,
+      model_Y,
+      treat = stress,
+      mediator = IB,
+      robustSE = TRUE,
+      sims = sims,
+      treat.value = treat_stress_value,
+      control.value = control_stress_value
+    ),
+    error = function(e) {
+      cat("Skipping ", stress, " and ", IB, ": mediate() failed - ", conditionMessage(e), "\n", sep = "")
+      return(NULL)
+    }
+  )
+  
+  if (is.null(mediations_a)) return(NULL)
+  
+  moderations_a <- tryCatch(
+    test.modmed(
+      mediations_a,
+      list(C1PRAGE = age_low),
+      list(C1PRAGE = age_high)
+    ),
+    error = function(e) {
+      cat("Skipping ", stress, " and ", IB, ": test.modmed() failed - ", conditionMessage(e), "\n", sep = "")
+      return(NULL)
+    }
+  )
+  
+  if (is.null(moderations_a)) return(NULL)
+  
+  return(list(
+    mediation = mediations_a,
+    moderation = moderations_a,
+    model_used = model_used,
+    treat.value = treat_stress_value,
+    control.value = control_stress_value
+  ))
+}
+```
+
+
+
+#### A) Executive Function (C3TCTFLU) - linear:
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TCTFLU",
+      outcome_family = gaussian(link = "identity"), # Quantitative outcome
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) Executive Function (C3TCTFLU): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+## Apply the function to create the output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "Immediate Episodic Memory (C3TWLITU)")
+
+```
+
+
+
+#### C) Processing Speed (C3TBKTOT_trans) - linear :
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TBKTOT_trans",
+      outcome_family = gaussian(link = "identity"), # Quantitative outcome
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) Processing Speed (C3TBKTOT_trans): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+
+#### Apply the function to populate the already created output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "Processing Speed (C3TBKTOT_trans)", IB_age.df)
+
+
+```
+
+
+###### 
+
+###*CF-Poisson:
+
+Although overdisperssion tests (Model_Y) using these CF variables indicated that the dispersion was ok, I will still use robust standard errors to mitigate the impact of some outliers in Model_M. 
+
+
+#### D) Immediate Episodic Memory (C3TWLITU) - poisson:
+
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TWLITU",
+      outcome_family = poisson(link = "log"), # Count outcome -> Poisson regression
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) Immediate Episodic Memory (C3TWLITU): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+
+#### Apply the function to populate the already created output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "Immediate Episodic Memory (C3TWLITU)", IB_age.df)
+
+
+```
+
+
+
+#### E) Working Memory (C3TDBS) - poisson:
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TDBS",
+      outcome_family = poisson(link = "log"), # Count outcome -> Poisson regression
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) Working Memory (C3TDBS): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+
+#### Apply the function to populate the already created output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "Working Memory (C3TDBS)", IB_age.df)
+
+
+```
+
+
+#### F) Inductive Reasoning (C3TNSTOT) - poisson:
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TNSTOT",
+      outcome_family = poisson(link = "log"), # Count outcome -> Poisson regression
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) Inductive Reasoning (C3TNSTOT): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+
+#### Apply the function to populate the already created output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "Inductive Reasoning (C3TNSTOT)", IB_age.df)
+
+
+```
+
+
+###*zscores-CF:
+
+
+
+#### G) zscore_Executive Function (C3TEF) - linear:
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TEF",
+      outcome_family = gaussian(link = "identity"), # Quantitative outcome
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) zscore_Executive Function (C3TEF): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+## Apply the function to create the output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "zscore_Executive Function (C3TEF)", IB_age.df)
+
+```
+
+
+#### H) zscore_Episodic Memory  (C3TEM_trans) - linear:
+
+```{r}
+# Initialize lists to store mediation and moderation results:
+set.seed(1234)
+mediation_results_a <- list()
+moderation_results_a <- list()
+mediation_model_used_a <- list()
+
+# Loop through each IB:
+for (IB in IBs) {
+  # Loop through each stress variable
+  for (stress in stressors_cat) {
+    
+    # Track running:
+    cat("Running: ", stress, " and ", IB, "\n")
+    
+    ### 1-5) Fit models, run mediation, and run age moderation test:
+    mediation_pair <- run_age_mediation_pair(
+      outcome = "C3TEM_trans",
+      outcome_family = gaussian(link = "identity"), # Quantitative outcome
+      stress = stress,
+      IB = IB,
+      data = subset_white_final_IB_dic
+    )
+    
+    if (is.null(mediation_pair)) next
+    
+    # Store results
+    mediation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$mediation
+    moderation_results_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$moderation
+    mediation_model_used_a[[paste(stress, IB, sep = "_")]] <- mediation_pair$model_used
+  }
+}
+
+# Print all mediation results
+for (result in names(mediation_results_a)) {
+  stress_and_IB <- split_stress_ib_key(result)
+  stress <- stress_and_IB$stressor
+  IB <- stress_and_IB$IB
+  cat("1) zscore_Episodic Memory (C3TEM_trans): Mediation result of the stressor:", stress, ", and the IB", IB, ":\n")
+  print(summary(mediation_results_a[[result]]))
+  
+  # Print moderation results:
+  cat("\n 2) Moderation Test (Age 40 vs 75):\n")
+  print(moderation_results_a[[paste(stress, IB, sep = "_")]])
+}
+
+
+
+#### Apply the function to populate the already created output table:
+IB_age.df <- tabulate_results(mediation_results_a, moderation_results_a, "Age", "zscore_Episodic Memory (C3TEM_trans)", IB_age.df)
+
+```
+
+
+
+
+
+```{r}
+# Save the age_output file:
+write.csv(IB_age.df, "../outs/IB_AGE_mediations_moderations_results_dic.csv", row.names = FALSE)
+
+```

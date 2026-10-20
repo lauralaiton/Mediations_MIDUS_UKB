@@ -1,0 +1,843 @@
+---
+title: "step1_ UKB mediations stress-IB_CF"
+output: md_document
+---
+
+# 0) Preprocessing:
+
+```{r}
+# Read the dataset with all variables:
+df_1=read.csv("../data/ukb_all_vars.csv")
+colnames(df_1)
+```
+
+```{r}
+library(dplyr)
+# Subset only european ancestry individuals (white):
+white= c("British", "Irish", "Any other white background")
+df_1=df_1[ df_1$ethnicity %in% white, ]
+
+table(df_1$ethnicity)
+```
+
+
+
+## a) Assign NA to all values different than the measurements:
+
+```{r}
+# Columns to inspect the structure looking for misslabeled NA:
+cols_na= c("depression", "s_phys_abus", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_neglect", "s_loneliness" , "cf_pairs_match_1", "cf_num_memory", "cf_num_memory_ONL", "cf_tm_duration_num", "cf_tm_duration_num_ONL", "cf_tm_duration_alph" , "cf_tm_duration_alph_ONL", "cf_fluid_intell", "cf_fluid_intell_ONL", "cf_paired_aso_learn", "cf_reaction_time", "cf_matrix_pattern", "cf_tower_rearranging", "cf_symb_digit_subst", "cf_symb_digit_subst_ONL")
+
+lapply(df_1[, cols_na], unique)
+
+```
+
+
+```{r}
+
+####### 1) All stressor vairiables:
+# Childhood abuse:
+stressors_CH= c("s_phys_abus", "s_sex_mol", "s_sex_mol", "s_felt_loved", "s_felt_hated")
+unique(df_1$s_sex_mol) # as example
+
+for (stressor in stressors_CH) {
+  df_1[[stressor]][(df_1[[stressor]] %in% -818)] = NA
+}
+unique(df_1$s_sex_mol)
+
+# Neglect: 
+df_1 <- df_1 %>% 
+  mutate(
+    s_neglect = case_when(
+      s_neglect == "Never true" ~ 0,
+      s_neglect == "Rarely true"  ~ 1,
+      s_neglect == "Sometimes true" ~ 2,
+      s_neglect == "Often" ~ 3,
+      s_neglect == "Very often true"~ 4,
+      s_neglect %in% c("", "Prefer not to answer") |
+        is.na(s_neglect)                     ~ NA_real_,
+      TRUE                                   ~ NA_real_
+    )
+  )
+
+unique(df_1$s_neglect)
+
+# Loneliness-AD:
+df_1$s_loneliness[df_1$s_loneliness %in% c("Prefer not to answer", "Do not know", "")] = NA
+unique(df_1$s_loneliness)
+
+
+
+
+####### 2) Covariates:
+# Physical activity:
+unique(df_1$phys_act)
+df_1$phys_act[(df_1$phys_act %in% c(-1, -3 ) )] = NA
+unique(df_1$phys_act)
+
+# Depression:
+unique(df_1$depression)
+df_1$depression[(df_1$depression %in% c("Do not know", "Prefer not to answer", "" ) )] = NA
+unique(df_1$depression)
+df_1$depression= as.factor(df_1$depression)
+str(df_1$depression)
+```
+
+
+```{r}
+####### 3) Cognitive functions: 
+# NOTE: ONLINE CFs-versions are already cleaned.
+
+##### Assign NA to numeric memory:  
+unique(df_1$cf_num_memory)
+df_1$cf_num_memory[(df_1$cf_num_memory %in% c("Abandoned", "" ) )] = NA
+#Change the structure from string to numeric:
+df_1$cf_num_memory=as.integer(df_1$cf_num_memory)
+unique(df_1$cf_num_memory)
+
+#### Assign NA to trail_making_dur:  
+# Numeric (trail a)
+unique(df_1$cf_tm_duration_num)
+df_1$cf_tm_duration_num[(df_1$cf_tm_duration_num %in% c("Trail not completed", "" ) )] = NA
+unique(df_1$cf_tm_duration_num)
+# Change the structure from string to numeric:
+df_1$cf_tm_duration_num=as.numeric(df_1$cf_tm_duration_num)
+unique(df_1$cf_tm_duration_num)
+
+# Alphanumeric (trail b)
+unique(df_1$cf_tm_duration_alph)
+df_1$cf_tm_duration_alph[(df_1$cf_tm_duration_alph%in% c("Trail not completed", "" ) )] = NA
+unique(df_1$cf_tm_duration_alph)
+# Change the structure from string to numeric:
+df_1$cf_tm_duration_alph=as.numeric(df_1$cf_tm_duration_alph)
+unique(df_1$cf_tm_duration_alph)
+
+```
+
+
+```{r}
+# Factor and dummy variables:
+df_1$sex=as.factor(df_1$sex)
+
+# Change the levels of the stressor Loneliness:
+df_1 <- df_1 %>% 
+  mutate(
+    s_loneliness = case_when(
+      tolower(as.character(s_loneliness)) == "yes" ~ 1L,
+      tolower(as.character(s_loneliness)) == "no"  ~ 0L,
+      TRUE  ~ NA_integer_
+    )
+  )
+
+# Check final structure: 
+str(df_1)
+```
+
+
+
+## b) Reverse the corresponding stress variables:
+
+```{r}
+## Reverse the stressor "felt loved": 
+table(df_1$s_felt_loved)
+df_1$s_felt_loved = 4 - df_1$s_felt_loved # Data goes from 0 to 4
+table(df_1$s_felt_loved)
+
+## Reverse the stressor "neglect": 
+table(df_1$s_neglect)
+df_1$s_neglect = 4 - df_1$s_neglect # Data goes from 0 to 4
+table(df_1$s_neglect)
+
+
+```
+
+
+EXTRA: Get N of all subsets, step-by-step. CRP, IL6 and other IBs
+
+```{r}
+vars_all_dfs= c( "eid","sex", "age", "bmi", "SES", "phys_act", "depression", "s_phys_abus", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_phys_abus_CAT" , "s_psy_abus_CAT", "s_neglect", "s_loneliness")
+
+st= c("s_phys_abus", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_phys_abus_CAT" , "s_psy_abus_CAT", "s_neglect", "s_loneliness")
+
+# A) Dataset considenring only stressors:
+df_st= df_1[, (colnames(df_1) %in% c(st))]
+cat("Complete cases for df_st:", sum(complete.cases(df_st)), "\n")
+
+# B) Whole dataset condidering stressors + cov: 
+df_whole= df_1[, (colnames(df_1) %in% c(vars_all_dfs))]
+cat("Complete cases for df_whole:", sum(complete.cases(df_whole)), "\n")
+
+# C) CRP 
+df_CRP= df_1[, (colnames(df_1) %in% c(vars_all_dfs , "CRP"))]
+cat("Complete cases for df_CRP:", sum(complete.cases(df_CRP)), "\n")
+
+# D) IL6
+df_IL6= df_1[, (colnames(df_1) %in% c(vars_all_dfs , "IL6"))]
+cat("Complete cases for df_IL6:", sum(complete.cases(df_IL6)), "\n")
+
+# E) Ohter IBs:
+df_IBs= df_1[, (colnames(df_1) %in% c(vars_all_dfs , "ESEL", "ICAM1", "TNF"))]
+cat("Complete cases for df_IBs:", sum(complete.cases(df_IBs)), "\n")
+
+
+```
+
+
+
+
+## c) Creation of pooled / compound variables: 
+
+### CFs:
+### - Change units of duplicated CFs:
+
+- Both cf_num_memory (centre and online) have the same scale.
+- Both cf_fluid_intell (centre and online) have the same scale.
+- Both cf_symb_digit_subst (centre and online) have the same scale.
+
+```{r}
+
+### A) cf_tm_duration_num:
+# Convert Centre-version of "cf_tm_duration_num" from deciseconds to seconds (to match the online version units)
+summary(df_1$cf_tm_duration_num)
+summary(df_1$cf_tm_duration_num_ONL)
+
+df_1$cf_tm_duration_num = df_1$cf_tm_duration_num / 10
+
+cat("After conversion to seconds: \n")
+summary(df_1$cf_tm_duration_num)
+```
+
+```{r}
+### B) cf_tm_duration_alph:
+# Convert Centre-version of "cf_tm_duration_alph" from deciseconds to seconds (to match the online version units)
+summary(df_1$cf_tm_duration_alph)
+summary(df_1$cf_tm_duration_alph_ONL)
+
+df_1$cf_tm_duration_alph = df_1$cf_tm_duration_alph / 10
+
+cat("After conversion to seconds: \n")
+summary(df_1$cf_tm_duration_alph)
+
+
+```
+
+
+
+
+### - Pooled CFs:
+##### .Center + online versions:
+
+```{r}
+###### 1) Create the pooled variables for CFs with centre+online data available: 
+library(dplyr)
+df_1 <- df_1 %>%
+  mutate(cf_num_memory_MERG = coalesce(cf_num_memory_ONL, cf_num_memory),
+         cf_tm_duration_num_MERG = coalesce(cf_tm_duration_num_ONL, cf_tm_duration_num),
+         cf_tm_duration_alph_MERG = coalesce(cf_tm_duration_alph_ONL, cf_tm_duration_alph),
+         cf_fluid_intell_MERG = coalesce(cf_fluid_intell_ONL, cf_fluid_intell),
+         cf_symb_digit_subst_MERG = coalesce(cf_symb_digit_subst_ONL, cf_symb_digit_subst),
+         ) 
+#@ coalesce()= returns the first non-NA value it finds in each row (first looking at online and then at centre variable)
+
+# Valid data in final variables:
+sum(!is.na(df_1$cf_num_memory_MERG))
+sum(!is.na(df_1$cf_tm_duration_num_MERG))
+sum(!is.na(df_1$cf_tm_duration_alph_MERG))
+sum(!is.na(df_1$cf_fluid_intell_MERG))
+sum(!is.na(df_1$cf_symb_digit_subst_MERG))
+
+```
+
+
+```{r}
+#### 2) Create new dataset with new cf variables: 
+exc_vars_df2= c("cf_num_memory", "cf_num_memory_ONL", "cf_tm_duration_num", "cf_tm_duration_num_ONL", "cf_tm_duration_alph" , "cf_tm_duration_alph_ONL", "cf_fluid_intell", "cf_fluid_intell_ONL", "cf_symb_digit_subst", "cf_symb_digit_subst_ONL")
+df_2= df_1[, !colnames(df_1) %in% exc_vars_df2]
+colnames(df_2)
+```
+
+
+##### .Create the Attention Switching var:
+
+```{r}
+### 1) Create the attention switching variable: 
+# NOTE: This is going to be (Duration to complete alphanumeric path (trail #2) / Duration to complete numeric path (trail #1))
+df_2$cf_att_swit= df_2$cf_tm_duration_alph_MERG / df_2$cf_tm_duration_num_MERG
+sum(!is.na(df_2$cf_att_swit))
+
+```
+
+###- Reverse the CFs that need to: 
+
+Because more seconds = slower = worse, I multiply *Trail-Making (A and B)* and *Reaction time* times by -1 so that higher is better
+
+```{r}
+### Reverse variables with units=seconds: 
+summary(df_2$cf_tm_duration_num_MERG)
+# Reverse Trail #1 (A):
+df_2$cf_tm_duration_num_MERG = df_2$cf_tm_duration_num_MERG * -1
+# Reverse Trail #2 (B):
+df_2$cf_tm_duration_alph_MERG = df_2$cf_tm_duration_alph_MERG * -1
+# Reverse Reaction time:
+df_2$cf_reaction_time = df_2$cf_reaction_time * -1
+
+summary(df_2$cf_tm_duration_num_MERG)
+
+```
+
+### - Compound Zscore CFs creation:
+
+
+```{r}
+###### Create compound Z-scores for the CF domains:
+### A) zscore_processing_speed: 
+  
+df_2 <- df_2 %>%
+## 1) Create Z-scores for each task (single CF):
+  mutate(
+    z_reac_time      = as.numeric(scale(cf_reaction_time)), # use scale to standardise
+    z_symb_d_sub  = as.numeric(scale(cf_symb_digit_subst_MERG)),   
+  ) %>%
+    
+## 2) Create the compound score by computing the mean of the available single CF z-scores within each row:
+  rowwise() %>%
+  mutate(
+    # Count non-missing tasks (CFs):
+    n_avail_PS = sum(!is.na(c_across(z_reac_time:z_symb_d_sub))), 
+    # Average the z-scores present:
+    PS_raw     = ifelse(n_avail_PS >= 2, # only if at least 2 values present
+                        mean(c_across(z_reac_time:z_symb_d_sub), na.rm = TRUE),
+                        NA_real_) # else leave as NA
+  ) %>%
+  ungroup() %>% # return to normal (non-rowwise)
+    
+## 3) Re-standardise the composite score, so it is also a z-score:
+  mutate(
+    cf_zscore_processing_speed = as.numeric(scale(PS_raw))
+  ) %>%
+# Drop intermediate variables (helpers):
+  dplyr::select(-n_avail_PS, -PS_raw)
+  
+  
+head(df_2)
+
+```
+
+
+```{r}
+### B) zscore_reasoning: 
+  
+df_2 <- df_2 %>%
+## 1) Create Z-scores for each task (single CF):
+  mutate(
+    z_flidint  = as.numeric(scale(cf_fluid_intell_MERG)), # use scale to standardise
+    z_matpat  = as.numeric(scale(cf_matrix_pattern))
+  ) %>%
+    
+## 2) Create the compound score by computing the mean of the available single CF z-scores within each row:
+  rowwise() %>%
+  mutate(
+    # Count non-missing tasks (CFs):
+    n_avail_R = sum(!is.na(c_across(z_flidint:z_matpat))), 
+    # Average the z-scores present:
+    R_raw  = ifelse(n_avail_R >= 2, # only if at least 2 values present
+                        mean(c_across(z_flidint:z_matpat), na.rm = TRUE),
+                        NA_real_) # else leave as NA
+  ) %>%
+  ungroup() %>% # return to normal (non-rowwise)
+    
+## 3) Re-standardise the composite score, so it is also a z-score:
+  mutate(
+    cf_zscore_reasoning = as.numeric(scale(R_raw))
+  ) %>%
+# Drop intermediate variables (helpers):
+  dplyr::select(-n_avail_R, -R_raw)
+  
+  
+head(df_2)
+```
+
+
+```{r}
+### C) zscore_executive_function: 
+  
+df_2 <- df_2 %>%
+## 1) Create Z-scores for each task (single CF):
+  mutate(
+    z_tower      = as.numeric(scale(cf_tower_rearranging)), # use scale to standardise
+    z_trail_num  = as.numeric(scale(cf_tm_duration_num_MERG)),   
+    z_trail_alph = as.numeric(scale(cf_tm_duration_alph_MERG))   
+  ) %>%
+    
+## 2) Create the compound score by computing the mean of the available single CF z-scores within each row:
+  rowwise() %>%
+  mutate(
+    # Count non-missing tasks (CFs):
+    n_avail_EF = sum(!is.na(c_across(z_tower:z_trail_alph))), 
+    # Average the z-scores present:
+    EF_raw     = ifelse(n_avail_EF >= 2, # only if at least 2 values present
+                        mean(c_across(z_tower:z_trail_alph), na.rm = TRUE),
+                        NA_real_) # else leave as NA
+  ) %>%
+  ungroup() %>% # return to normal (non-rowwise)
+    
+## 3) Re-standardise the composite score, so it is also a z-score:
+  mutate(
+    cf_zscore_executive_function = as.numeric(scale(EF_raw))
+  ) %>%
+# Drop intermediate variables (helpers):
+  dplyr::select(-n_avail_EF, -EF_raw)
+  
+  
+head(df_2)
+
+```
+
+
+
+```{r}
+### C) zscore_memory: 
+  
+df_2 <- df_2 %>%
+## 1) Create Z-scores for each task (single CF):
+  mutate(
+    z_pairsmatch = as.numeric(scale(cf_pairs_match_1)), # use scale to standardise
+    z_nummem  = as.numeric(scale(cf_num_memory_MERG)),   
+    z_parlearn = as.numeric(scale(cf_paired_aso_learn))   
+  ) %>%
+    
+## 2) Create the compound score by computing the mean of the available single CF z-scores within each row:
+  rowwise() %>%
+  mutate(
+    # Count non-missing tasks (CFs):
+    n_avail_M = sum(!is.na(c_across(z_pairsmatch:z_parlearn))), 
+    # Average the z-scores present:
+    M_raw     = ifelse(n_avail_M >= 2, # only if at least 2 values present
+                        mean(c_across(z_pairsmatch:z_parlearn), na.rm = TRUE),
+                        NA_real_) # else leave as NA
+  ) %>%
+  ungroup() %>% # return to normal (non-rowwise)
+    
+## 3) Re-standardise the composite score, so it is also a z-score:
+  mutate(
+    cf_zscore_memory = as.numeric(scale(M_raw))
+  ) %>%
+# Drop intermediate variables (helpers):
+  dplyr::select(-n_avail_M, -M_raw)
+  
+  
+head(df_2)
+```
+
+
+###- Visualization of missing data: 
+
+```{r}
+###### 1) Create VISS plots to visualize missing data:
+library(naniar)
+library(ggplot2)
+library(dplyr)
+
+# Number of chunks
+n_chunks <- 30
+chunk_size <- nrow(df_1) %/% n_chunks
+
+# Directory to save plots
+dir.create("missing_plots_df1", showWarnings = FALSE)
+
+# Split and save each plot
+
+for (i in 1:3) { ## Only create 3 plots for the first 3 chunks
+  cat("Saving chunk", i, "\n")
+  
+  df_chunk <- df_1 %>%
+    slice(((i - 1) * chunk_size + 1):(i * chunk_size))
+  
+  p <- vis_miss(df_chunk)
+  
+  ggsave(
+    filename = paste0("missing_plots_df1/df_1_vis_miss_chunk_", i, ".png"),
+    plot = p,
+    width = 10, height = 6, dpi = 300
+  )
+}
+
+
+```
+
+
+```{r}
+#### 2) Visualize again missing data with the new pooled-CF variables:
+
+# Number of chunks
+n_chunks <- 30
+chunk_size <- nrow(df_2) %/% n_chunks
+
+# Directory to save plots
+dir.create("missing_plots_df2", showWarnings = FALSE)
+
+# Split and save each plot
+for (i in 15:30) { ## Only create 3 plots for the LAST 10 chunks
+  cat("Saving chunk", i, "\n")
+  
+  df_chunk <-df_2 %>%
+    slice(((i - 1) * chunk_size + 1):(i * chunk_size))
+  
+  p <- vis_miss(df_chunk)
+  
+  ggsave(
+    filename = paste0("missing_plots_df2/df_2_vis_miss_chunk_", i, ".png"),
+    plot = p,
+    width = 10, height = 6, dpi = 300
+  )
+}
+
+```
+
+
+
+### Stress categories:
+
+
+```{r}
+# Category - Physical abuse=
+df_2$s_phys_abus_CAT= df_2$s_phys_abus + df_2$s_sex_mol
+table(df_2$s_phys_abus_CAT)
+
+# Category - Psychological/emotional abuse= 
+df_2$s_psy_abus_CAT= df_2$s_felt_loved + df_2$s_felt_hated
+table(df_2$s_psy_abus_CAT)
+```
+
+```{r}
+#### Collapse the last levels of stress to increase sample size of the highest stress level: 
+stressors_CAT= c("s_phys_abus_CAT", "s_psy_abus_CAT") 
+stressors_sing= c("s_phys_abus", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_neglect",  "s_loneliness" )
+
+# Loop through categorical stressors
+for (stressor in stressors_CAT) {
+  cat("\nBefore collapsing:", stressor, "\n")
+  print(table(df_2[[stressor]]))
+
+  # Collapse levels >= 4 to 4
+  df_2[[stressor]] <- ifelse(df_2[[stressor]] >= 4, 4, df_2[[stressor]])
+
+  cat("After collapsing:", stressor, "\n")
+  print(table(df_2[[stressor]]))
+}
+
+
+# Loop through single stressors
+for (stressor in stressors_sing) {
+  cat("\nBefore collapsing: ", stressor, "\n")
+  print(table(df_2[[stressor]]))
+
+  # Collapse levels >= 3 to 3
+  df_2[[stressor]] <- ifelse(df_2[[stressor]] >= 3, 3, df_2[[stressor]])
+
+  cat("After collapsing:", stressor, "\n")
+  print(table(df_2[[stressor]]))
+}
+
+
+
+
+```
+
+
+```{r}
+# Count how many valid data each variable has:
+non_na_counts = colSums(!is.na(df_2))
+non_na_counts 
+
+```
+
+
+## d) Subsets' creation: 
+
+### - With single CFs:
+
+
+```{r}
+############ ----- To include all the other CFs:
+
+### Create 21 different subsets: 
+# -7 for mediations with CRP 
+# -7 for mediations with IL6 
+# -7 for mediations with the other 3 IBs
+
+vars_all_dfs= c( "eid","sex", "age", "bmi", "SES", "phys_act", "depression", "s_phys_abus", "s_sex_mol", "s_felt_loved", "s_felt_hated", "s_phys_abus_CAT" , "s_psy_abus_CAT", "s_neglect", "s_loneliness")
+
+##### 1) Subsets for CRP (according to CFs valid data): 
+
+### Subsets with several CFs:
+# A) CRP + pairs matching + reaction time:
+df_CRP_1pairsm_rt= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP", "cf_pairs_match_1", "cf_reaction_time"))]
+cat("Complete cases for df_CRP_1pairsm_rt:", sum(complete.cases(df_CRP_1pairsm_rt)), "\n")
+
+# B) CRP + trail making A and B + Attention switching:
+df_CRP_2trailm_as= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP",  "cf_tm_duration_num_MERG", "cf_tm_duration_alph_MERG", "cf_att_swit"))]
+cat("Complete cases for df_CRP_2trailm_as: ", sum(complete.cases(df_CRP_2trailm_as)), "\n")
+
+# C) CRP + Matrix pattern + Paired aso. learning:
+df_CRP_3matpat_pal= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP",  "cf_matrix_pattern", "cf_paired_aso_learn"))]
+cat("Complete cases for df_CRP_3matpat_pal: ", sum(complete.cases(df_CRP_3matpat_pal)), "\n")
+
+### Subsets single CFs:
+# D) CRP + numeric memory:
+df_CRP_4numem= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"CRP", "cf_num_memory_MERG"))]
+cat("Complete cases for df_CRP_4numem: ", sum(complete.cases(df_CRP_4numem)), "\n")
+
+# E) CRP + fluid intelligence:
+df_CRP_5fluidin= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"CRP", "cf_fluid_intell_MERG"))]
+cat("Complete cases for df_CRP_5fluidin: ", sum(complete.cases(df_CRP_5fluidin)), "\n")
+
+# F) CRP + symbol digit substitution:
+df_CRP_6symbds= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"CRP", "cf_symb_digit_subst_MERG"))]
+cat("Complete cases for df_CRP_6symbds: ", sum(complete.cases(df_CRP_6symbds)), "\n")
+
+# G) CRP + tower rearranging:
+df_CRP_7towerre= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"CRP", "cf_tower_rearranging"))]
+cat("Complete cases for df_CRP_7towerre: ", sum(complete.cases(df_CRP_7towerre)), "\n")
+```
+
+
+```{r}
+##### 2) Subsets for IL6 (according to CFs valid data):
+
+### Subsets with several CFs:
+# A) IL6 + pairs matching + reaction time:
+df_IL6_1pairsm_rt= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6", "cf_pairs_match_1", "cf_reaction_time"))]
+cat("Complete cases for df_IL6_1pairsm_rt:", sum(complete.cases(df_IL6_1pairsm_rt)), "\n")
+
+# B) IL6 + trail making A and B + Attention switching:
+df_IL6_2trailm_as= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6",  "cf_tm_duration_num_MERG", "cf_tm_duration_alph_MERG", "cf_att_swit"))]
+cat("Complete cases for df_IL6_2trailm_as: ", sum(complete.cases(df_IL6_2trailm_as)), "\n")
+
+# C) IL6 + Matrix pattern + Paired aso. learning:
+df_IL6_3matpat_pal= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6",  "cf_matrix_pattern", "cf_paired_aso_learn"))]
+cat("Complete cases for df_IL6_3matpat_pal: ", sum(complete.cases(df_IL6_3matpat_pal)), "\n")
+
+### Subsets single CFs:
+# D) IL6 + numeric memory:
+df_IL6_4numem= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"IL6", "cf_num_memory_MERG"))]
+cat("Complete cases for df_IL6_4numem: ", sum(complete.cases(df_IL6_4numem)), "\n")
+
+# E) IL6 + fluid intelligence:
+df_IL6_5fluidin= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"IL6", "cf_fluid_intell_MERG"))]
+cat("Complete cases for df_IL6_5fluidin: ", sum(complete.cases(df_IL6_5fluidin)), "\n")
+
+# F) IL6 + symbol digit substitution:
+df_IL6_6symbds= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"IL6", "cf_symb_digit_subst_MERG"))]
+cat("Complete cases for df_IL6_6symbds: ", sum(complete.cases(df_IL6_6symbds)), "\n")
+
+# G) IL6 + symbol digit substitution:
+df_IL6_7towerre= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"IL6", "cf_tower_rearranging"))]
+cat("Complete cases for df_IL6_7towerre: ", sum(complete.cases(df_IL6_7towerre)), "\n")
+
+
+```
+
+
+```{r}
+##### 3) Subsets for the other 3 IBs (according to CFs valid data):
+
+### Subsets with several CFs:
+# A) IBs + pairs matching + reaction time:
+df_IBs_1pairsm_rt= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF", "cf_pairs_match_1", "cf_reaction_time"))]
+cat("Complete cases for df_IBs_1pairsm_rt:", sum(complete.cases(df_IBs_1pairsm_rt)), "\n")
+
+# B) IBs + trail making A and B + Attention switching:
+df_IBs_2trailm_as= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF",  "cf_tm_duration_num_MERG", "cf_tm_duration_alph_MERG", "cf_att_swit"))]
+cat("Complete cases for df_IBs_2trailm_as: ", sum(complete.cases(df_IBs_2trailm_as)), "\n")
+
+# C) IBs + Matrix pattern + Paired aso. learning:
+df_IBs_3matpat_pal= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF",  "cf_matrix_pattern", "cf_paired_aso_learn"))]
+cat("Complete cases for df_IBs_3matpat_pal: ", sum(complete.cases(df_IBs_3matpat_pal)), "\n")
+
+### Subsets single CFs:
+# D) IBs + numeric memory:
+df_IBs_4numem= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"ICAM1", "ESEL", "TNF", "cf_num_memory_MERG"))]
+cat("Complete cases for df_IBs_4numem: ", sum(complete.cases(df_IBs_4numem)), "\n")
+
+# E) IBs + fluid intelligence:
+df_IBs_5fluidin= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"ICAM1", "ESEL", "TNF", "cf_fluid_intell_MERG"))]
+cat("Complete cases for df_IBs_5fluidin: ", sum(complete.cases(df_IBs_5fluidin)), "\n")
+
+# F) IBs + symbol digit substitution:
+df_IBs_6symbds= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"ICAM1", "ESEL", "TNF", "cf_symb_digit_subst_MERG"))]
+cat("Complete cases for df_IBs_6symbds: ", sum(complete.cases(df_IBs_6symbds)), "\n")
+
+# G) IBs + symbol digit substitution:
+df_IBs_7towerre= df_2[, (colnames(df_2) %in% c(vars_all_dfs ,"ICAM1", "ESEL", "TNF", "cf_tower_rearranging"))]
+cat("Complete cases for df_IBs_7towerre: ", sum(complete.cases(df_IBs_7towerre)), "\n")
+
+
+```
+
+
+### - With CF compound zscores:
+
+```{r}
+### Create 12 different subsets (to create zscores): 
+# -4 for mediations with CRP 
+# -4 for mediations with IL6 
+# -4 for mediations with the other 3 IBs
+
+
+##### 1) Subsets for CRP (according to CFs valid data): 
+
+# A) CRP + compound zscore for Processing speed:
+df_CRP_1_zscore_processing_speed= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP", "cf_zscore_processing_speed"))]
+cat("Complete cases for df_CRP_1_zscore_processing_speed:", sum(complete.cases(df_CRP_1_zscore_processing_speed)), "\n")
+
+# B)  CRP + compound zscore for Reasoning:
+df_CRP_2_zscore_reasoning= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP", "cf_zscore_reasoning"))]
+cat("Complete cases for df_CRP_2_zscore_reasoning:", sum(complete.cases(df_CRP_2_zscore_reasoning)), "\n")
+
+# C)  CRP + compound zscore for Executive function:
+df_CRP_3_zscore_executive_function= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP", "cf_zscore_executive_function"))]
+cat("Complete cases for df_CRP_3_zscore_executive_function:", sum(complete.cases(df_CRP_3_zscore_executive_function)), "\n")
+
+# D)  CRP + compound zscore for Memory:
+df_CRP_4_zscore_memory= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "CRP", "cf_zscore_memory"))]
+cat("Complete cases for df_CRP_4_zscore_memory:", sum(complete.cases(df_CRP_4_zscore_memory)), "\n")
+
+```
+
+
+```{r}
+##### 2) Subsets for IL6 (according to CFs valid data):
+
+# A) IL6 + compound zscore for Processing speed:
+df_IL6_1_zscore_processing_speed= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6", "cf_zscore_processing_speed"))]
+cat("Complete cases for df_IL6_1_zscore_processing_speed:", sum(complete.cases(df_IL6_1_zscore_processing_speed)), "\n")
+
+# B)  IL6 +  compound zscore for Reasoning:
+df_IL6_2_zscore_reasoning= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6", "cf_zscore_reasoning"))]
+cat("Complete cases for df_IL6_2_zscore_reasoning:", sum(complete.cases(df_IL6_2_zscore_reasoning)), "\n")
+
+# C)  IL6 + compound zscore for Executive function:
+df_IL6_3_zscore_executive_function= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6", "cf_zscore_executive_function"))]
+cat("Complete cases for df_IL6_3_zscore_executive_function:", sum(complete.cases(df_IL6_3_zscore_executive_function)), "\n")
+
+# D)  IL6 + compound zscore for Memory:
+df_IL6_4_zscore_memory= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "IL6", "cf_zscore_memory"))]
+cat("Complete cases for df_IL6_4_zscore_memory:", sum(complete.cases(df_IL6_4_zscore_memory)), "\n")
+```
+
+
+
+```{r}
+##### 3) Subsets for the other 3 IBs (according to CFs valid data):
+
+# A) IBs + compound zscore for Processing speed:
+df_IBs_1_zscore_processing_speed= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF", "cf_zscore_processing_speed"))]
+cat("Complete cases for df_IBs_1_zscore_processing_speed:", sum(complete.cases(df_IBs_1_zscore_processing_speed)), "\n")
+
+# B)  IBs + compound zscore for Reasoning:
+df_IBs_2_zscore_reasoning= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF", "cf_zscore_reasoning"))]
+cat("Complete cases for df_IBs_2_zscore_reasoning:", sum(complete.cases(df_IBs_2_zscore_reasoning)), "\n")
+
+# C)  IBs + compound zscore for Executive function:
+df_IBs_3_zscore_executive_function= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF", "cf_zscore_executive_function"))]
+cat("Complete cases for df_IBs_3_zscore_executive_function:", sum(complete.cases(df_IBs_3_zscore_executive_function)), "\n")
+
+# D)  IBs + compound zscore for Memory:
+df_IBs_4_zscore_memory= df_2[, (colnames(df_2) %in% c(vars_all_dfs , "ICAM1", "ESEL", "TNF", "cf_zscore_memory"))]
+cat("Complete cases for df_IBs_4_zscore_memory:", sum(complete.cases(df_IBs_4_zscore_memory)), "\n")
+
+```
+
+
+
+
+## f) Update and Save the subsets: 
+
+### - Update subsets:
+
+```{r}
+##### 4) Update the 21 (single CFs) and the 14 (zscores CFs) subsets only including the complete cases: 
+# List of subsets: 
+subsets= c("df_CRP_1pairsm_rt","df_CRP_2trailm_as","df_CRP_3matpat_pal","df_CRP_4numem","df_CRP_5fluidin","df_CRP_6symbds","df_CRP_7towerre","df_IL6_1pairsm_rt","df_IL6_2trailm_as","df_IL6_3matpat_pal","df_IL6_4numem","df_IL6_5fluidin","df_IL6_6symbds","df_IL6_7towerre",  "df_IBs_1pairsm_rt","df_IBs_2trailm_as","df_IBs_3matpat_pal","df_IBs_4numem","df_IBs_5fluidin","df_IBs_6symbds","df_IBs_7towerre",  "df_CRP_1_zscore_processing_speed","df_CRP_2_zscore_reasoning","df_CRP_3_zscore_executive_function","df_CRP_4_zscore_memory", "df_IL6_1_zscore_processing_speed","df_IL6_2_zscore_reasoning","df_IL6_3_zscore_executive_function","df_IL6_4_zscore_memory", "df_IBs_1_zscore_processing_speed","df_IBs_2_zscore_reasoning","df_IBs_3_zscore_executive_function","df_IBs_4_zscore_memory" )
+
+for (subset in subsets) {
+  df <- get(subset)  # Get each dataframe
+  df_clean <- df[complete.cases(df), ]   # Keep only complete cases
+  assign(subset, df_clean, envir = .GlobalEnv)  # Save it back to the same variable
+}
+
+str(df_2)
+```
+
+
+
+```{r}
+### Check missing data of ONE of the datasets for mediations with the other 3 IBS:
+# Number of chunks
+n_chunks <- 15
+chunk_size <- nrow(df_IBs_4numem) %/% n_chunks
+
+# Directory to save plots
+dir.create("missing_plots_dfIBs_4numem", showWarnings = FALSE)
+
+# Split and save each plot
+for (i in 1:3) { ## Only create 3 plots for the first 3 chunks
+  cat("Saving chunk", i, "\n")
+  
+  df_chunk <- df_IBs_4numem %>%
+    slice(((i - 1) * chunk_size + 1):(i * chunk_size))
+  
+  p <- vis_miss(df_chunk)
+  
+  ggsave(
+    filename = paste0("missing_plots_dfIBs_4numem/vis_miss_chunk_dfIBs_4numem_", i, ".png"),
+    plot = p,
+    width = 10, height = 6, dpi = 300
+  )
+}
+
+```
+
+```{r}
+
+# Save each of the 33 subsets as .RData:
+setwd("/storage/group/yzv101/default/projects/UKB_stress_IB_CF/data")
+save(df_CRP_1pairsm_rt, file="df_CRP_1pairsm_rt.Rdata")
+save(df_CRP_2trailm_as, file="df_CRP_2trailm_as.Rdata")
+save(df_CRP_3matpat_pal, file="df_CRP_3matpat_pal.Rdata")
+save(df_CRP_4numem, file="df_CRP_4numem.Rdata")
+save(df_CRP_5fluidin, file="df_CRP_5fluidin.Rdata")
+save(df_CRP_6symbds, file="df_CRP_6symbds.Rdata")
+save(df_CRP_7towerre, file="df_CRP_7towerre.Rdata")
+save(df_IL6_1pairsm_rt, file="df_IL6_1pairsm_rt.Rdata")
+save(df_IL6_2trailm_as, file="df_IL6_2trailm_as.Rdata")
+save(df_IL6_3matpat_pal, file="df_IL6_3matpat_pal.Rdata")
+save(df_IL6_4numem, file="df_IL6_4numem.Rdata")
+save(df_IL6_5fluidin, file="df_IL6_5fluidin.Rdata")
+save(df_IL6_6symbds, file="df_IL6_6symbds.Rdata")
+save(df_IL6_7towerre, file="df_IL6_7towerre.Rdata")
+save(df_IBs_1pairsm_rt, file="df_IBs_1pairsm_rt.Rdata")
+save(df_IBs_2trailm_as, file="df_IBs_2trailm_as.Rdata")
+save(df_IBs_3matpat_pal, file="df_IBs_3matpat_pal.Rdata")
+save(df_IBs_4numem, file="df_IBs_4numem.Rdata")
+save(df_IBs_5fluidin, file="df_IBs_5fluidin.Rdata")
+save(df_IBs_6symbds, file="df_IBs_6symbds.Rdata")
+save(df_IBs_7towerre, file="df_IBs_7towerre.Rdata")
+save(df_CRP_1_zscore_processing_speed, file="df_CRP_1_zscore_processing_speed.Rdata")
+save(df_CRP_2_zscore_reasoning, file="df_CRP_2_zscore_reasoning.Rdata")
+save(df_CRP_3_zscore_executive_function, file="df_CRP_3_zscore_executive_function.Rdata")
+save(df_CRP_4_zscore_memory, file="df_CRP_4_zscore_memory.Rdata")
+save(df_IL6_1_zscore_processing_speed, file="df_IL6_1_zscore_processing_speed.Rdata")
+save(df_IL6_2_zscore_reasoning, file="df_IL6_2_zscore_reasoning.Rdata")
+save(df_IL6_3_zscore_executive_function, file="df_IL6_3_zscore_executive_function.Rdata")
+save(df_IL6_4_zscore_memory, file="df_IL6_4_zscore_memory.Rdata")
+save(df_IBs_1_zscore_processing_speed, file="df_IBs_1_zscore_processing_speed.Rdata")
+save(df_IBs_2_zscore_reasoning, file="df_IBs_2_zscore_reasoning.Rdata")
+save(df_IBs_3_zscore_executive_function, file="df_IBs_3_zscore_executive_function.Rdata")
+save(df_IBs_4_zscore_memory, file="df_IBs_4_zscore_memory.Rdata")
+
+
+```
+
+

@@ -1,0 +1,484 @@
+---
+title: "step5_GE_StressCat_Diagnostics_Transformations"
+output: md_document
+---
+
+The dataset "subset_white_final_GE.Rdata" contains all RAW variables needed for GE mediations including all RAW GE (51 genes) (**before** transformations and stress categories creation), but after the imputation and after removing individual with diseases (see previous step).
+
+
+```{r}
+load("../data/subset_white_final_GE.Rdata")
+st_categ <- read.csv("../data/stress_categories.csv")
+library(dplyr)
+```
+
+
+# 1) Dichotomization and grouping by subcategories: 
+
+
+```{r}
+# Make a copy of the dataset before creating category-level stress scores.
+subset_white_final_GE_dic <- subset_white_final_GE
+
+# Use only CF-selected individual stressors and attach category/range metadata.
+selected_stressor_info <- st_categ %>%
+  distinct(Variable, category, value_range) %>%
+  arrange(category, Variable)
+
+missing_ranges <- selected_stressor_info %>%
+  filter(is.na(value_range) | value_range == "" | value_range == "NA")
+if (nrow(missing_ranges) > 0) {
+  stop("These CF-selected stressors have missing value_range metadata: ",
+       paste(missing_ranges$Variable, collapse = ", "))
+}
+
+make_score_name <- function(category_name) {
+  score_name <- tolower(category_name)
+  score_name <- gsub("\\s*-\\s*", "_", score_name)
+  score_name <- gsub("[^a-z0-9]+", "_", score_name)
+  score_name <- gsub("_+", "_", score_name)
+  score_name <- gsub("^_|_$", "", score_name)
+  paste0(score_name, "_score")
+}
+
+transform_by_value_range <- function(x, value_range) {
+  range_parts <- strsplit(value_range, "to", fixed = TRUE)[[1]]
+  if (length(range_parts) != 2) {
+    stop("Unsupported value_range format: ", value_range)
+  }
+
+  min_value <- as.numeric(range_parts[1])
+  max_value <- as.numeric(range_parts[2])
+  if (is.na(min_value) || is.na(max_value)) {
+    stop("Unsupported value_range format: ", value_range)
+  }
+
+  high_stress_cutoff <- floor((min_value + max_value) / 2) + 1
+  ifelse(is.na(x), NA_integer_, ifelse(x >= high_stress_cutoff, 1L, 0L))
+}
+
+category_score_key <- selected_stressor_info %>%
+  distinct(category) %>%
+  mutate(score_var = make_score_name(category))
+
+for (current_category in category_score_key$category) {
+  category_vars <- selected_stressor_info %>%
+    filter(category == current_category)
+
+  missing_dataset_vars <- setdiff(category_vars$Variable, names(subset_white_final_GE_dic))
+  if (length(missing_dataset_vars) > 0) {
+    stop("These selected stressors are missing from subset_white_final_GE: ",
+         paste(missing_dataset_vars, collapse = ", "))
+  }
+
+  transformed_matrix <- sapply(seq_len(nrow(category_vars)), function(i) {
+    current_var <- category_vars$Variable[i]
+    current_range <- category_vars$value_range[i]
+    transform_by_value_range(subset_white_final_GE_dic[[current_var]], current_range)
+  })
+
+  if (is.null(dim(transformed_matrix))) {
+    transformed_matrix <- matrix(transformed_matrix, ncol = 1)
+  }
+  colnames(transformed_matrix) <- category_vars$Variable
+
+  score_var <- category_score_key$score_var[category_score_key$category == current_category]
+  subset_white_final_GE_dic[[score_var]] <- rowSums(transformed_matrix, na.rm = FALSE)
+}
+
+stressors_cat <- category_score_key$score_var
+
+selected_stressor_info
+category_score_key
+lapply(stressors_cat, function(x) table(subset_white_final_GE_dic[[x]], useNA = "ifany"))
+
+# Diagnostic: complete-case N per category score, to flag power loss from NA propagation
+cat("\nComplete-case N per category score (rowSums with na.rm = FALSE propagates NA):\n")
+for (score_var in stressors_cat) {
+  cat(" -", score_var, ":", sum(!is.na(subset_white_final_GE_dic[[score_var]])),
+      "/", nrow(subset_white_final_GE_dic), "\n")
+}
+
+```
+
+```{r}
+category_score_summary <- selected_stressor_info %>%
+  group_by(category) %>%
+  summarise(
+    score_var = make_score_name(first(category)),
+    n_variables = n(),
+    variables = paste(Variable, collapse = ", "),
+    original_value_ranges = paste(unique(value_range), collapse = ", "),
+    dichotomized_variable_range = "0to1",
+    category_score_possible_range = paste0("0to", n_variables),
+    category_score_observed_range = paste0(
+      min(subset_white_final_GE_dic[[score_var]], na.rm = TRUE),
+      "to",
+      max(subset_white_final_GE_dic[[score_var]], na.rm = TRUE)
+    ),
+    .groups = "drop"
+  ) %>%
+  arrange(match(score_var, stressors_cat))
+
+category_score_summary
+```
+
+
+
+# 1) QC:
+
+
+```{r}
+# Ensure covariates sex and physical activity are factors:
+subset_white_final_GE_dic$C1PRSEX = as.factor(subset_white_final_GE_dic$C1PRSEX)
+str(subset_white_final_GE_dic$C1PRSEX)
+
+subset_white_final_GE_dic$C1SA26F = as.factor(subset_white_final_GE_dic$C1SA26F)
+str(subset_white_final_GE_dic$C1SA26F)
+
+
+```
+
+
+```{r}
+# List of GENES:
+index_f=which(names(subset_white_final_GE_dic) == "RA6RCXCL8") # Column number of the first gene
+index_l=which(names(subset_white_final_GE_dic) == "RA6ROASL") # last gene --> Remaining genes are covariates
+# Get the gene names (51 genes):
+  # Extract the names of the columns, excluding the first 36:
+all_genes = colnames(subset_white_final_GE_dic)[index_f:index_l]
+all_genes
+
+
+```
+
+
+### - GE standardization:
+
+```{r}
+### Inspect the stats of RAW GE:
+head(subset_white_final_GE_dic[,all_genes])
+
+# Check if the genes are already standardized (around 0):
+for (gene in all_genes){ 
+  cat("Gene: ", gene, "\n")
+  print(min(subset_white_final_GE_dic[[gene]]))
+  print(max(subset_white_final_GE_dic[[gene]]))
+  }
+```
+
+
+### - Remove genes with low counts:
+
+Remove genes with average expression level < 0.5 log2 CPM reads.
+
+```{r}
+
+# Identify genes with low counts:
+remove_genes = list()  
+for (gene in all_genes) {
+  # Check the mean expression of the gene:
+  if (mean(subset_white_final_GE_dic[[gene]]) <=0.55) {
+    remove_genes = append(remove_genes, gene)  # Append the gene to the list
+  }
+}
+remove_genes  
+
+
+# Remove those 9 genes from the list: 
+dim(subset_white_final_GE_dic)
+subset_white_final_GE_dic=subset_white_final_GE_dic[,!colnames(subset_white_final_GE_dic) %in% remove_genes]
+dim(subset_white_final_GE_dic)
+
+# Update the gene list:
+all_genes = all_genes[!all_genes %in% remove_genes] 
+all_genes 
+
+```
+---> Total genes to work with: 42
+
+
+
+### - Diagnostics:
+
+```{r}
+### Plot model's residuals to make model diagnostics:
+
+# Save in a pdf:
+pdf("../outs/Diagnostics_GE_stress_lm.pdf", width = 10, height = 5)
+
+# Loop through each gene:
+for (gene in all_genes) {
+  # Loop through each stressor
+  for (stress in stressors_cat) {
+    
+    # Define the model: GE ~ stress: 
+    model <- glm(as.formula(paste(gene, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T + RA6RCD3E + RA6RCD3D + RA6RCD8A + RA6RCD14 + RA6RCD19 + RA6RFCGR3A + RA6RNCAM1")),
+                   family = gaussian(link = "identity"),
+                   data = subset_white_final_GE_dic)
+    
+    # Plot diagnostic plots for residuals
+    # Save plots to PDF only (no console output)
+    par(mfrow = c(2,3))  # Arrange 2x2 plots per page
+    invisible(capture.output({
+    plot(model, main = paste("Model:", gene, "~", stress))
+    hist(residuals(model), main = paste("Model:", gene, "~", stress))
+    }))
+  }
+}
+
+dev.off()
+```
+
+
+
+All residuals are ether skewed or with an heterogeneous distribution. 
+
+
+```{r}
+# Check distribution of RAW GE data of all genes: 
+
+# Save in a pdf:
+pdf("../outs/RAW_standardize_GE_distributions.pdf", width = 12, height = 8)
+
+plot_count <- 0  # Set up the plot counter
+# Loop through each gene
+for (i in seq_along(all_genes)) {
+  # Reset layout every 25 plots (new page)
+  if (plot_count %% 25 == 0) {
+    par(mfrow = c(5,5))  # Arrange plots in a 5x5 grid
+  }
+  # Generate histogram for the current gene
+  hist(subset_white_final_GE_dic[[all_genes[i]]], 
+       main = paste("Gene:", all_genes[i]), 
+       col = "gray", border = "black")
+  # Update plot counter
+  plot_count <- plot_count + 1  
+}
+
+dev.off()  # Close the PDF file
+
+```
+
+Although the GE RAW data of some genes seems to be approximately normal distributed or slightly skewed, I would need to transform them or to select different models (!= lm). 
+
+
+### - GE transformations:
+
+```{r}
+# New dataset to transform the genes on it: 
+subset_white_final_GE_dic_trans <- subset_white_final_GE_dic
+
+# Apply inverse-normal transformation to all 42 genes:
+head(subset_white_final_GE_dic_trans[, all_genes])
+
+for (gene in all_genes) {
+  subset_white_final_GE_dic_trans[[gene]] <- qnorm((rank(subset_white_final_GE_dic_trans[[gene]], na.last = "keep") - 0.5) / sum(!is.na(subset_white_final_GE_dic_trans[[gene]])))
+}
+
+head(subset_white_final_GE_dic_trans[, all_genes])
+
+
+```
+
+
+# 3) Diagnostics (models used in mediations): 
+
+### Model_Y = CF ~ Stressor(category) + gene:
+
+######.Lineal models:
+
+```{r}
+# Save in a pdf:
+
+pdf("../outs/GE_Final_diagnostics_Model_Y_Linears.pdf", width = 10, height = 5)
+
+# List the CF with quantitative data:
+CFs_linear= c("C3TCTFLU", "C3TBKTOT", "C3TEM", "C3TEF")
+
+### Plot model_Y's residuals to make model diagnostics:
+    
+    # Loop through each Cognitive Function (CF)
+    for (CF in CFs_linear) {
+      # Loop through each gene
+      for (gene in all_genes) {
+        # Loop through each stressor_cat
+        for (stress in stressors_cat)
+          # Define the model: CF ~ stress + gene:
+          model_Y <- glm(as.formula(paste(CF, "~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                         family = gaussian(link = "identity"),
+                         data = subset_white_final_GE_dic_trans)
+        
+        # Save plots to PDF only (no console output)
+        par(mfrow = c(2,3))  # Arrange plots in 2x3 grid
+        invisible(capture.output({
+          plot(model_Y, main = paste("Model:", CF, "~", stress, "+", gene))
+          hist(residuals(model_Y), main = paste("Model:", CF, "~", stress, "+", gene)) 
+        }))
+      }
+    }
+  
+  dev.off()  # Close the PDF
+  
+```
+  
+
+####.Poisson models:
+  
+```{r}
+  library(performance) # to conduct overdispersion test
+
+  CFs_poisson= c("C3TWLITU", "C3TDBS", "C3TNSTOT")
+  
+  ### Plot model_Y's residuals to make model diagnostics:
+  # Loop through each CF:
+  for (CF in CFs_poisson) {
+    # Loop through each gene
+    for (gene in all_genes) {
+      # Loop through each stressor_cat
+      for (stress in stressors_cat) {
+        # Define the model: CF ~ stress + gene:
+        model_Y = glm(as.formula(paste(CF, "~", stress, "+", gene, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                      family = poisson(link = "log"),
+                      data = subset_white_final_GE_dic_trans)
+        
+        # Run Overdispersion Test
+        ov_output <- capture.output({
+          cat("\n\n## Overdispersion result for:", gene, "~", stress, "##\n")
+          check_overdispersion(model_Y)
+        })
+        cat(ov_output, sep = "\n", file = "../outs/GE_Final_diagnostics_Model_Y_Poisson_Overdispersion_results.txt", append = TRUE)
+      }
+    }
+  }
+  
+```
+  
+
+## Gene composite scores:
+
+```{r}
+####### 1) Following Abner's method:
+pro_inf_genes=c("RA6RFOS", "RA6RFOSB", "RA6RFOSL2", "RA6RIL1B", "RA6RJUN", "RA6RJUNB",
+  "RA6RJUND", "RA6RNFKB1", "RA6RNFKB2", "RA6RPTGS1", "RA6RPTGS2", "RA6RREL", "RA6RRELA", "RA6RRELB", "RA6RTNF" )
+antiviral_genes= c("RA6RGBP1", "RA6RIFI16", "RA6RIFI27L1", "RA6RIFI27L2", "RA6RIFI30", "RA6RIFI35", "RA6RIFI44", "RA6RIFI44L", "RA6RIFI6", "RA6RIFIH1", "RA6RIFIT1", "RA6RIFIT2", "RA6RIFIT3", "RA6RIFIT5", "RA6RIFITM1", "RA6RIFITM2", "RA6RIFITM3", "RA6RIRF2", "RA6RIRF7", "RA6RIRF8", "RA6RJCHAIN", "RA6RMX1", "RA6RMX2", "RA6ROAS1", "RA6ROAS2", "RA6ROAS3", "RA6ROASL") 
+
+
+# Within-gene mean-centre all expression columns 
+expr_centered <- subset_white_final_GE_dic_trans[ , c(pro_inf_genes, antiviral_genes) ]
+expr_centered <- sweep(expr_centered, 2, colMeans(expr_centered, na.rm = TRUE), FUN = "-")
+
+#  Row-average to get the two sub-scores 
+subset_white_final_GE_dic_trans$proinflam <- rowMeans(expr_centered[ , pro_inf_genes], na.rm = TRUE)
+subset_white_final_GE_dic_trans$antiviral <- rowMeans(expr_centered[ , antiviral_genes], na.rm = TRUE)
+
+##### Overall CTRA score  (pro - antiviral)=
+subset_white_final_GE_dic_trans$ctra   <- subset_white_final_GE_dic_trans$proinflam   -   subset_white_final_GE_dic_trans$antiviral
+
+#Sample-mean-centre the three composite scores 
+subset_white_final_GE_dic_trans$proinflam <- scale(subset_white_final_GE_dic_trans$proinflam,  center = TRUE, scale = FALSE)[ ,1]
+subset_white_final_GE_dic_trans$antiviral <- scale(subset_white_final_GE_dic_trans$antiviral, center = TRUE, scale = FALSE)[ ,1]
+subset_white_final_GE_dic_trans$ctra <- scale(subset_white_final_GE_dic_trans$ctra, center = TRUE, scale = FALSE)[ ,1]
+
+```
+
+
+
+
+```{r}
+###### 2) Using hirerchical clustering:
+
+# 1. Extract the expression matrix for all genes
+ALLexpr_mat <- subset_white_final_GE_dic_trans[ , all_genes]
+
+# 2. Z-score each gene (mean = 0, SD = 1)
+ALLexpr_z <- scale(ALLexpr_mat)  # samples × genes
+
+# 3. Distance and clustering
+ALLd <- dist(t(ALLexpr_z), method = "euclidean")   # distance between genes
+ALLhc  <- hclust(ALLd, method = "ward.D2")
+
+plot(ALLhc, hang = -1)  # plot the dendrogram
+axis(side = 2, at = seq(0, max(ALLhc$height), by = 1))  # add more y-axis ticks every 5 units
+
+```
+
+
+```{r}
+# 4. Decide number of clusters
+k <- 9   # or use: ALLgene_grp <- cutree(ALLhc, h = 31)
+ALLgene_grp <- cutree(ALLhc, h = 20)  # named vector: gene → cluster
+
+# 5. Print clusters
+for (g in 1:k) {
+  cat(paste0("Cluster ", g, ": \n"))
+  print(names(ALLgene_grp)[ALLgene_grp == g])
+}
+
+# 6. Compare mean vs median
+for (g in 1:k) {
+  genes <- names(ALLgene_grp)[ALLgene_grp == g]
+  m  <- rowMeans(ALLexpr_z[, genes, drop = FALSE], na.rm = TRUE)
+  med   <- matrixStats::rowMedians(as.matrix(ALLexpr_z[, genes]), na.rm = TRUE)
+  cat("Cluster", g, "correlation(mean, median) =", round(cor(m, med, use = "pair"), 4), "\n")
+}
+```
+
+
+
+-----> I will omit cluster 7 because it only has a gene on it. 
+
+
+```{r}
+# 7. Build cluster scores using means
+library(dplyr)
+for (g in setdiff(1:k, 7)) {  # exclude cluster 7
+  genes_in_g <- names(ALLgene_grp)[ALLgene_grp == g]
+  col_name   <- paste0("ALLcluster", g , "mean")
+  subset_white_final_GE_dic_trans[[col_name]] <-
+      rowMeans(ALLexpr_z[ , genes_in_g, drop = FALSE], na.rm = TRUE)
+}
+
+
+# 8. Build cluster scores using eigengenes (PC1)
+library(tidyverse)
+ALLpc_var_expl <- numeric(k) # variance explained container
+
+for (g in setdiff(1:k, 7)) {  # exclude cluster 7
+  genes_g <- names(ALLgene_grp)[ALLgene_grp == g]
+  pca_g  <- prcomp(ALLexpr_z[ , genes_g, drop = FALSE], center = FALSE, scale. = FALSE)
+  eig <- pca_g$x[ , 1]
+  col_nm<- paste0("ALLcluster", g, "eig")
+  subset_white_final_GE_dic_trans[[col_nm]] <- eig
+  ALLpc_var_expl[g] <- (pca_g$sdev[1]^2) / sum(pca_g$sdev^2)
+}
+
+ALLvar_df <- tibble(
+  cluster = paste0("ALLcluster", setdiff(1:k, 7)),
+  PC1_var = round(ALLpc_var_expl[setdiff(1:k, 7)] * 100, 1)
+)
+ALLvar_df
+
+```
+  
+```{r}
+### Extract the names of the new gene scores:
+index_gs=which(names(subset_white_final_GE_dic_trans) == "proinflam")
+
+additional_gene_score_vars= colnames(subset_white_final_GE_dic_trans[ ,index_gs:length(subset_white_final_GE_dic_trans)])
+additional_gene_score_vars
+
+```
+  
+  
+```{r}
+# Save the final GE_dataset after transformations and with stressors (categories) (subset A) 
+# --- Use this dataset to: Conduct mediations, make and merge it with GE for GE mediations:
+save(subset_white_final_GE_dic_trans, file="../data/subset_white_final_GE_dic_trans.RData")
+  
+```
+  
+
+  
+  
+  

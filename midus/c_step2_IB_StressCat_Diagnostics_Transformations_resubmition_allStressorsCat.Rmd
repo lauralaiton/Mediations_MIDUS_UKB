@@ -1,0 +1,452 @@
+---
+title: "step2_IB_StressCat_Diagnostics_Transformations"
+output: md_document
+---
+
+The dataset "subset_white_final_IB.Rdata" contains all RAW variables needed for IB mediations (**before** transformations and stress categories creation), but after the imputation and after removing individuals with diseases (see previous step).
+
+
+```{r}
+load("../data/subset_white_final_IB.Rdata")
+st_categ <- read.csv("../data/stress_categories.csv") ## theory-driven categories
+library(dplyr)
+```
+
+
+# 1) Associations IB vs stressors (individually) - DESCRIPTIVE ONLY
+
+### - Diagnostics:
+
+```{r}
+# 1) List all stressors:
+index <- which(names(subset_white_final_IB) == "C1SJ8H") # last stressor index
+index
+stressors <- colnames(subset_white_final_IB)[2:index]
+stressors
+
+# 2) List of IBs:
+IBs <- c("C4BCRP", "C4BMSDIL6", "C4BSESEL", "C4BSICAM", "C4BMSDTNFa")
+```
+
+
+```{r}
+# Ensure covariates sex and physical activity are factors:
+subset_white_final_IB$C1PRSEX <- as.factor(subset_white_final_IB$C1PRSEX)
+str(subset_white_final_IB$C1PRSEX)
+
+subset_white_final_IB$C1SA26F <- as.factor(subset_white_final_IB$C1SA26F)
+str(subset_white_final_IB$C1SA26F)
+```
+
+
+```{r}
+# Check distribution of IB raw data:
+for (IB in IBs) {
+  hist(subset_white_final_IB[[IB]], main = paste(IB))
+}
+```
+
+Both, residuals (IB ~ stress) and raw IBs data are skewed. I will transform all IBs:
+
+### - IBs transformation:
+
+```{r}
+# Apply inverse-normal transformation to all IBs:
+for (IB in IBs) {
+  subset_white_final_IB[[IB]] <- qnorm((rank(subset_white_final_IB[[IB]], na.last = "keep") - 0.5) / sum(!is.na(subset_white_final_IB[[IB]])))
+}
+
+head(subset_white_final_IB[, IBs])
+```
+
+
+### - Regressions (descriptive only):
+
+#### - CF ~ individual_stressors
+
+```{r}
+# Define all Cognitive Function (CF) variables by model type:
+CFs_linear_no_transform <- c("C3TCTFLU", "C3TEF")
+CFs_linear_to_transform <- c("C3TBKTOT", "C3TEM")
+CFs_poisson_individual  <- c("C3TWLITU", "C3TDBS", "C3TNSTOT")
+# NOTE: C3TSCGBA intentionally excluded from this table - opposite polarity (latency/cost measure)
+
+# Sanity check: composites should correlate positively with their component tests
+cor(subset_white_final_IB$C3TEF, subset_white_final_IB$C3TCTFLU, use = "complete.obs")
+cor(subset_white_final_IB$C3TEM, subset_white_final_IB$C3TWLITU, use = "complete.obs")
+
+# Apply inverse-normal transformation to the CFs that needed it:
+inverse_normal_transform <- function(x) {
+  qnorm((rank(x, na.last = "keep") - 0.5) / sum(!is.na(x)))
+}
+
+for (CF in CFs_linear_to_transform) {
+  subset_white_final_IB[[paste0(CF, "_trans")]] <- inverse_normal_transform(subset_white_final_IB[[CF]])
+}
+
+CFs_linear_individual <- c(
+  CFs_linear_no_transform,
+  paste0(CFs_linear_to_transform, "_trans")
+)
+
+CF_model_key <- data.frame(
+  CF = c(CFs_linear_individual, CFs_poisson_individual),
+  CF_original = c(
+    CFs_linear_no_transform,
+    CFs_linear_to_transform,
+    CFs_poisson_individual
+  ),
+  Model = c(
+    rep("gaussian_identity", length(CFs_linear_individual)),
+    rep("poisson_log", length(CFs_poisson_individual))
+  ),
+  Transformation = c(
+    rep("none", length(CFs_linear_no_transform)),
+    rep("inverse_normal", length(CFs_linear_to_transform)),
+    rep("none", length(CFs_poisson_individual))
+  ),
+  stringsAsFactors = FALSE
+)
+
+CF_model_key
+```
+
+```{r}
+# Perform the regressions (CF ~ individual_stressors) and collect betas and p-values
+# (DESCRIPTIVE ONLY ):
+
+extract_cf_stressor_betas <- function(stress_vars, cf_vars, data, model_family, model_label) {
+  results <- data.frame(CF = character(),
+                        Variable = character(),
+                        Term = character(),
+                        Beta = numeric(),
+                        Pvalue = numeric(),
+                        Model = character(),
+                        Link = character(),
+                        stringsAsFactors = FALSE)
+
+  for (cf in cf_vars) {
+    for (st in stress_vars) {
+      formula <- as.formula(paste(cf, "~", st, "+ C1PRSEX + C1PRAGE + SES + C1SBMI + C1SA26F + C1SA11T"))
+      model <- glm(formula, family = model_family, data = data)
+      coeffs <- summary(model)$coefficients
+
+      stress_terms <- rownames(coeffs) == st
+      if (!any(stress_terms)) {
+        stress_terms <- startsWith(rownames(coeffs), st)
+      }
+
+      if (any(stress_terms)) {
+        term_names <- rownames(coeffs)[stress_terms]
+        result_rows <- data.frame(CF = cf,
+                                  Variable = st,
+                                  Term = term_names,
+                                  Beta = coeffs[stress_terms, 1],
+                                  Pvalue = coeffs[stress_terms, 4],
+                                  Model = model_label,
+                                  Link = model_family$link,
+                                  stringsAsFactors = FALSE)
+        results <- rbind(results, result_rows)
+      }
+    }
+  }
+
+  return(results)
+}
+
+results_ST_CFs_linear <- extract_cf_stressor_betas(
+  stress_vars = stressors,
+  cf_vars = CFs_linear_individual,
+  data = subset_white_final_IB,
+  model_family = gaussian(link = "identity"),
+  model_label = "gaussian_identity"
+)
+
+results_ST_CFs_poisson <- extract_cf_stressor_betas(
+  stress_vars = stressors,
+  cf_vars = CFs_poisson_individual,
+  data = subset_white_final_IB,
+  model_family = poisson(link = "log"),
+  model_label = "poisson_log"
+)
+
+results_ST_CFs <- rbind(results_ST_CFs_linear, results_ST_CFs_poisson)
+
+results_ST_CFs <- merge(results_ST_CFs, CF_model_key, by = c("CF", "Model"), all.x = TRUE)
+
+results_ST_CFs <- results_ST_CFs %>%
+  dplyr::select(CF_original, CF, Transformation, Model, Link, Variable, Term, Beta, Pvalue)
+
+str(results_ST_CFs)
+head(results_ST_CFs)
+```
+
+####### 
+
+```{r}
+# Merge CF ~ individual stressor results with the stress categories table (descriptive):
+if (!exists("st_categ")) {
+  st_categ <- read.csv("../data/stress_categories.csv")
+}
+
+results_ST_CFs_c <- merge(results_ST_CFs, st_categ, by = "Variable")
+results_ST_CFs_c <- results_ST_CFs_c %>%
+  arrange(category, Variable, CF_original)
+
+str(results_ST_CFs_c)
+
+# Save complete CF ~ individual stressor results (for reporting/supplementary tables):
+write.csv(results_ST_CFs, "../outs/results_ST_CFs_individual_stressors.csv", row.names = FALSE)
+write.csv(results_ST_CFs_c, "../outs/results_ST_CFs_individual_stressors_categories.csv", row.names = FALSE)
+```
+
+
+```{r}
+# DESCRIPTIVE SUMMARY ONLY 
+sig_results_CFs <- results_ST_CFs %>% filter(Pvalue < 0.1, Beta < 0)
+sig_stressors_CFs <- unique(sig_results_CFs$Variable)
+```
+
+
+
+# 2) Dichotomization and grouping by stressor categories:
+
+
+```{r}
+# Make a copy of the dataset before creating category-level stress scores.
+subset_white_final_IB_dic <- subset_white_final_IB
+
+
+# Use ALL stressors listed in stress_categories.csv (a priori classification)
+selected_stressor_info <- st_categ %>%
+  filter(Variable %in% stressors) %>%   # restrict to stressors present in this dataset
+  distinct(Variable, category, value_range) %>%
+  arrange(category, Variable)
+
+# Sanity check: flag any stressor in the dataset that has no category assigned in stress_categories.csv (these would silently be dropped otherwise).
+unclassified_stressors <- setdiff(stressors, selected_stressor_info$Variable)
+if (length(unclassified_stressors) > 0) {
+  cat("WARNING: the following stressors have no category in stress_categories.csv and will NOT be included in any category score:\n")
+  print(unclassified_stressors)
+}
+
+missing_ranges <- selected_stressor_info %>%
+  filter(is.na(value_range) | value_range == "" | value_range == "NA")
+if (nrow(missing_ranges) > 0) {
+  stop("These stressors have missing value_range metadata: ",
+       paste(missing_ranges$Variable, collapse = ", "))
+}
+
+make_score_name <- function(category_name) {
+  score_name <- tolower(category_name)
+  score_name <- gsub("\\s*-\\s*", "_", score_name)
+  score_name <- gsub("[^a-z0-9]+", "_", score_name)
+  score_name <- gsub("_+", "_", score_name)
+  score_name <- gsub("^_|_$", "", score_name)
+  paste0(score_name, "_score")
+}
+
+transform_by_value_range <- function(x, value_range) {
+  range_parts <- strsplit(value_range, "to", fixed = TRUE)[[1]]
+  if (length(range_parts) != 2) {
+    stop("Unsupported value_range format: ", value_range)
+  }
+
+  min_value <- as.numeric(range_parts[1])
+  max_value <- as.numeric(range_parts[2])
+  if (is.na(min_value) || is.na(max_value)) {
+    stop("Unsupported value_range format: ", value_range)
+  }
+
+  high_stress_cutoff <- floor((min_value + max_value) / 2) + 1
+  ifelse(is.na(x), NA_integer_, ifelse(x >= high_stress_cutoff, 1L, 0L))
+}
+
+category_score_key <- selected_stressor_info %>%
+  distinct(category) %>%
+  mutate(score_var = make_score_name(category))
+
+for (current_category in category_score_key$category) {
+  category_vars <- selected_stressor_info %>%
+    filter(category == current_category)
+
+  missing_dataset_vars <- setdiff(category_vars$Variable, names(subset_white_final_IB_dic))
+  if (length(missing_dataset_vars) > 0) {
+    stop("These stressors are missing from subset_white_final_IB: ",
+         paste(missing_dataset_vars, collapse = ", "))
+  }
+
+  transformed_matrix <- sapply(seq_len(nrow(category_vars)), function(i) {
+    current_var <- category_vars$Variable[i]
+    current_range <- category_vars$value_range[i]
+    transform_by_value_range(subset_white_final_IB_dic[[current_var]], current_range)
+  })
+
+  if (is.null(dim(transformed_matrix))) {
+    transformed_matrix <- matrix(transformed_matrix, ncol = 1)
+  }
+  colnames(transformed_matrix) <- category_vars$Variable
+
+  score_var <- category_score_key$score_var[category_score_key$category == current_category]
+  subset_white_final_IB_dic[[score_var]] <- rowSums(transformed_matrix, na.rm = FALSE)
+}
+
+stressors_cat <- category_score_key$score_var
+
+selected_stressor_info
+category_score_key
+lapply(stressors_cat, function(x) table(subset_white_final_IB_dic[[x]], useNA = "ifany"))
+
+# Diagnostic: complete-case N per category score, to flag power loss from NA propagation
+cat("\nComplete-case N per category score (rowSums with na.rm = FALSE propagates NA):\n")
+for (score_var in stressors_cat) {
+  cat(" -", score_var, ":", sum(!is.na(subset_white_final_IB_dic[[score_var]])),
+      "/", nrow(subset_white_final_IB_dic), "\n")
+}
+
+```
+
+```{r}
+category_score_summary <- selected_stressor_info %>%
+  group_by(category) %>%
+  summarise(
+    score_var = make_score_name(first(category)),
+    n_variables = n(),
+    variables = paste(Variable, collapse = ", "),
+    original_value_ranges = paste(unique(value_range), collapse = ", "),
+    dichotomized_variable_range = "0to1",
+    category_score_possible_range = paste0("0to", n_variables),
+    category_score_observed_range = paste0(
+      min(subset_white_final_IB_dic[[score_var]], na.rm = TRUE),
+      "to",
+      max(subset_white_final_IB_dic[[score_var]], na.rm = TRUE)
+    ),
+    .groups = "drop"
+  ) %>%
+  arrange(match(score_var, stressors_cat))
+
+category_score_summary
+```
+
+
+# 3) Diagnostics (models used in mediation):
+
+Run model diagnostics for the 2 models included in the mediations:
+- Model_M = IB ~ Stressor (category)
+- Model_Y = CF ~ Stressor (category) + IB
+
+### - Model_M = IB ~ Stressor(category):
+
+```{r}
+stressors_cat <- category_score_key$score_var
+
+pdf("../outs/IB_diagnostics_model_M.pdf", width = 8, height = 6)
+
+for (IB in IBs) {
+  for (stress in stressors_cat) {
+    model <- glm(as.formula(paste(IB, "~", stress, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                   family = gaussian(link = "identity"),
+                   data = subset_white_final_IB_dic)
+
+    par(mfrow = c(2,3))
+    invisible(capture.output({
+      plot(model, main = paste("Model:", IB, "~", stress))
+      hist(residuals(model), main = paste("Model:", IB, "~", stress))
+    }))
+  }
+}
+
+dev.off()
+```
+
+All residuals of the Model_M seem to be ok.
+
+### - Model_Y = CF ~ Stressor(category) + IB:
+
+##### Linear models:
+
+```{r}
+# List the CF with quantitative data (C3TSCGBA excluded per polarity note above):
+CFs_linear <- c("C3TCTFLU", "C3TBKTOT", "C3TEM", "C3TEF")
+
+pdf("../outs/IB_diagnostics_model_Y_linear.pdf", width = 8, height = 6)
+
+for (CF in CFs_linear) {
+  for (IB in IBs) {
+    for (stress in stressors_cat) {
+      model_Y <- glm(as.formula(paste(CF, "~", stress, "+", IB, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")), family = gaussian(link = "identity"),  data = subset_white_final_IB_dic)
+
+      par(mfrow = c(2,3))
+      invisible(capture.output({
+        plot(model_Y, main = paste("Model:", CF, "~", stress, "+", IB))
+        hist(residuals(model_Y), main = paste("Model:", CF, "~", stress, "+", IB))
+      }))
+    }
+  }
+}
+dev.off()
+```
+
+Residuals of models using C3TBKTOT and C3TEM are skewed. I will transform them:
+
+```{r}
+subset_white_final_IB_dic$C3TBKTOT_trans <- qnorm((rank(subset_white_final_IB_dic$C3TBKTOT, na.last = "keep")-0.5)/ sum(!is.na(subset_white_final_IB_dic$C3TBKTOT)))
+subset_white_final_IB_dic$C3TEM_trans <- qnorm((rank(subset_white_final_IB_dic$C3TEM, na.last = "keep")-0.5)/ sum(!is.na(subset_white_final_IB_dic$C3TEM)))
+
+head(subset_white_final_IB_dic[, c("C3TBKTOT", "C3TBKTOT_trans", "C3TEM", "C3TEM_trans")])
+```
+
+```{r}
+pdf("../outs/IB_diagnostics_model_Y_linear_CFstransf.pdf", width = 8, height = 6)
+
+CFs_linear_t <- c("C3TCTFLU", "C3TBKTOT_trans", "C3TEM_trans", "C3TEF")
+
+for (CF in CFs_linear_t) {
+  for (IB in IBs) {
+    for (stress in stressors_cat) {
+      model_Y <- glm(as.formula(paste(CF, "~", stress, "+", IB, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                     family = gaussian(link = "identity"),
+                     data = subset_white_final_IB_dic)
+
+      par(mfrow = c(2,3))
+      invisible(capture.output({
+        plot(model_Y, main = paste("Model:", CF, "~", stress, "+", IB))
+        hist(residuals(model_Y), main = paste("Model:", CF, "~", stress, "+", IB))
+      }))
+    }
+  }
+}
+dev.off()
+```
+
+Residuals are ok after transformation.
+
+##### Poisson models:
+
+```{r}
+library(performance)
+
+CFs_poisson <- c("C3TWLITU", "C3TDBS", "C3TNSTOT")
+
+for (CF in CFs_poisson) {
+  for (IB in IBs) {
+    for (stress in stressors_cat) {
+      model_Y <- glm(as.formula(paste(CF, "~", stress, "+", IB, "+ C1PRSEX + C1PRAGE + SES + C1SBMI   + C1SA26F + C1SA11T")),
+                     family = poisson(link = "log"),
+                     data = subset_white_final_IB_dic)
+      overdispersion_result <- check_overdispersion(model_Y)
+      print(paste("Model:", CF, "~", stress, "+", IB))
+      print(overdispersion_result)
+    }
+  }
+}
+```
+
+No overdispersion was detected for any model.
+
+```{r}
+# Save the final IB_dataset after transformations and with stressors (categories) (subset A)
+# --- Use this dataset to: Conduct mediations, make and merge it with GE for GE mediations:
+save(subset_white_final_IB_dic, file="../data/subset_white_final_IB_dic.RData")
+saveRDS(category_score_key, "../data/stressor_categories_score_key.RData")
+```

@@ -1,0 +1,332 @@
+---
+title: "step4_GE_SubsetB_Imputation"
+output: md_document
+---
+
+This dataset "WHOLE_dataset_white_all_genes.RData" contains all the RAW data for IB and GE before any imputation (after having reversed the corresponding stressors) . It does not have SES covariate because the calculation must be done after imputation.
+
+```{r}
+
+load(file = "../data/WHOLE_dataset_white_all_genes.RData")
+
+```
+
+
+
+
+### B) SUBSET for GENE EXPRESSION regressions (SUBSET B):
+
+```{r}
+# 1) List of all 11 PRESELECTED stressors (positive associations with IBs) :
+stress_all_vars = c("A1PC3", "A1PC14", "A1SE9", "A1SE11", "A1SE14C", "A1SE14D", "A1SE14E", "A1SE14F", "A1SE14G", "A1SE14H", "A1SE14I", "A1SE14J", "A1SE14K", "A1SE15", "A1SE16C", "A1SE16D", "A1SE16E", "A1SE16F", "A1SE16G", "A1SE16H", "A1SE16I", "A1SE16J", "A1SE16K", "A1SE17A", "A1SE17B", "A1SE17C", "A1SE17D", "A1SE17E", "A1SE17F", "A1SE17G", "A1SE17H", "A1SE17I", "A1SE17J", "A1SE17K", "A1SE17L", "A1SE17M", "A1SE17N", "A1SE17O", "C1SJ1", "C1SJ4A", "C1SJ4B", "C1SJ4C", "C1SJ4H", "C1SJ4J", "C1SJ5", "C1SJ8A", "C1SJ8B", "C1SJ8C", "C1SJ8F", "C1SJ8H")
+
+
+# 3) List the covariates (or common variables) used in all models:
+common_vars <- c("MIDUSID", "C1PRSEX", "C1PRAGE", "C1PB1", "C1SBMI", "C1SA26F", "C1STINC", "C1PHHSIZE", "C1SA11T")
+
+# 4) List of CF tasks:
+CFs = c("C3TWLITU", "C3TDBS", "C3TCTFLU", "C3TNSTOT", "C3TBKTOT", "C3TSCGBA" , "C3TEM", "C3TEF") #I am using the RAW version of C3TSCGBA for imputation.
+
+# 5) List of GENES:
+# Column number of the first gene:
+which(names(WHOLE_dataset_white_all_genes) == "RA6RCXCL8")
+# Get the gene names (51 genes):
+  # Extract the names of the columns, excluding the first 126:
+all_genes = colnames(WHOLE_dataset_white_all_genes)[85:ncol(WHOLE_dataset_white_all_genes)]
+all_genes 
+# 6) List of additional covariates specifically for GE analyses:
+covar_ge= c("RA6RPLATE", "RA6RCD3E",  "RA6RCD3D", "RA6RCD4", "RA6RCD8A", "RA6RCD14", "RA6RCD19", "RA6RFCGR3A", "RA6RNCAM1" )
+
+
+### Group all variables that are going to use in GE regressions and mediations:
+all_vars=c(stress_all_vars, common_vars, CFs, all_genes, covar_ge)
+
+
+###### Subset all requiered variables: 
+subset_white_mediations_GE= WHOLE_dataset_white_all_genes[, all_vars]
+sum(complete.cases(subset_white_mediations_GE))
+
+library(ggplot2)
+library(naniar)
+vis_miss(subset_white_mediations_GE, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 50, r = 10, b = 10, l = 10))
+
+```
+
+The **complete cases** of this full dataset is only **~300 rows**!!!
+
+
+###### A) Creating <16% missing - dataset:
+
+
+I have to still use part of the previous filtering method to get a dataset with <15% missing data.
+
+```{r}
+library(naniar)
+library(dplyr)
+
+#######  Filter 1:
+# Retain individuals with AT LEAST ONE non-missing GE value (it is the same that filter out individuals with all GE=NA values)
+subset_white_mediations_GE_2 <- subset_white_mediations_GE %>%
+  filter(rowSums(!is.na(subset(., select = all_genes))) >= 1)
+vis_miss(subset_white_mediations_GE_2, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 50, r = 10, b = 10, l = 10))
+dim(subset_white_mediations_GE_2)
+
+```
+
+
+
+```{r}
+#######  Filter 2:
+
+# Remove individuals with > 5 NA in stressors (retain individuals with at least 45 non-missing values) 
+subset_white_mediations_GE_3= subset_white_mediations_GE_2 %>%
+  filter(rowSums(!is.na(subset(., select = stress_all_vars))) >= 45)
+
+vis_miss(subset_white_mediations_GE_3, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+```
+
+
+```{r}
+#######  Filter 3:
+# Abuse related variables "17....):
+abuse_var= c( "A1SE17E", "A1SE17J", "A1SE17O", "A1SE17I", "A1SE17D", "A1SE17N") 
+
+# Exclude rows where at least 10 of the abuse_var are missing (only retain individuals with valid data in more than 4 of the stressors)
+subset_white_mediations_GE_4 = subset_white_mediations_GE_3  %>%
+  filter(
+    !(rowSums(is.na(subset(., select = abuse_var))) >= 4) # Minimum= 4. less than that, decreseases the % too much
+  )
+
+dim(subset_white_mediations_GE_3)
+dim(subset_white_mediations_GE_4)
+vis_miss(subset_white_mediations_GE_4, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+```
+
+
+```{r}
+#######  Filter 4:
+
+# NOTE:   The last filter achieve 16%. To remove the other 1% (10 individuals) I will select them randomly from people with NA data in those streassors that have > 16%:
+str_5=c("A1SE17E", "A1SE17J", "A1SE17O","A1SE17H", "A1SE17M", "A1SE17C")
+
+# 1. Append a helper column counting NAs across str_5
+data_miss <- subset_white_mediations_GE_4 %>%
+  mutate(miss_str5 = rowSums(is.na(across(all_of(str_5)))))
+
+# 2. Find the row-indices of the top most-missing (ties are broken by order in the data)
+rows_to_remove <- head(order(data_miss$miss_str5, decreasing = TRUE), 10)
+
+# 3. Slice those rows out, and drop the helper column
+subset_white_mediations_GE_5 <- data_miss %>%
+  slice(-rows_to_remove) %>%
+  dplyr::select(-miss_str5)
+
+dim(subset_white_mediations_GE_4)    
+dim(subset_white_mediations_GE_5)    
+
+vis_miss(subset_white_mediations_GE_5, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+```
+
+```{r}
+#######  Filter 5:
+
+# NOTE:   The last filter achieve 18%. To remove the other 1% (10 individuals) I will select them randomly from people with NA data in those streassors that have > 18%:
+str_x= c("A1SE17E", "A1SE17J", "A1SE17O")
+
+# 1. Append a helper column counting NAs across str_5
+data_miss <- subset_white_mediations_GE_5 %>%
+  mutate(miss_str5 = rowSums(is.na(across(all_of(str_x)))))
+
+# 2. Find the row-indices of the top most-missing (ties are broken by order in the data)
+rows_to_remove <- head(order(data_miss$miss_str5, decreasing = TRUE), 8)
+
+# 3. Slice those rows out, and drop the helper column
+subset_white_mediations_GE_6 <- data_miss %>%
+  slice(-rows_to_remove) %>%
+  dplyr::select(-miss_str5)
+
+dim(subset_white_mediations_GE_5)    
+dim(subset_white_mediations_GE_6)    
+
+vis_miss(subset_white_mediations_GE_6, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+
+```
+
+
+```{r}
+#######  Filter 6:
+
+# NOTE:   The last filter achieve 18%. To remove the other 5 individuals I will select them randomly from people with NA data in those 2 stressors that have > 18%:
+str_x= c("A1SE17E", "A1SE17J")
+
+# 1. Append a helper column counting NAs across str_5
+data_miss <- subset_white_mediations_GE_6 %>%
+  mutate(miss_str5 = rowSums(is.na(across(all_of(str_x)))))
+
+# 2. Find the row-indices of the top-9 most-missing (ties are broken by order in the data)
+rows_to_remove <- head(order(data_miss$miss_str5, decreasing = TRUE), 5)
+
+# 3. Slice those rows out, and drop the helper column
+subset_white_mediations_GE_7 <- data_miss %>%
+  slice(-rows_to_remove) %>%
+  dplyr::select(-miss_str5)
+
+dim(subset_white_mediations_GE_6)    
+dim(subset_white_mediations_GE_7)    
+
+vis_miss(subset_white_mediations_GE_7, sort_miss = TRUE) + coord_cartesian(clip = "off") + theme(plot.margin = margin(t = 35, r = 10, b = 10, l = 10))
+
+
+```
+
+
+#### - Imputation:
+
+
+```{r}
+### Impute all the variables except by genes (and gene covariates): 
+
+# Group all GE-related variables needed :
+all_vars_GE=c(all_genes, covar_ge)
+
+# 1) Exclude genes from the dataset: 
+library(dplyr)
+subset_white_to_impute_GE= subset_white_mediations_GE_7[ , !(names(subset_white_mediations_GE_7) %in% all_vars_GE)]
+str(subset_white_to_impute_GE)
+
+# 2) Split the dataset by sex: 
+subset_white_to_impute_GE_M= subset(subset_white_to_impute_GE, C1PRSEX==1)
+subset_white_to_impute_GE_F= subset(subset_white_to_impute_GE, C1PRSEX == 2)
+
+nrow(subset_white_to_impute_GE_M)
+```
+
+
+```{r}
+###### Impute the data:
+
+### 1) Male group Imputation: 
+# Perform multiple imputation:
+library(mice)
+subset_white_imputed_GE_M <- mice(subset_white_to_impute_GE_M, m = 1, method = 'pmm', maxit = 50, seed = 500)
+# Extract the complete dataset:
+subset_white_imputed_GE_M_complete <- complete(subset_white_imputed_GE_M)
+head(subset_white_imputed_GE_M_complete)
+
+# Visualize the NA data patterns: 
+vis_miss(subset_white_imputed_GE_M_complete)
+
+
+### 2) Female group Imputation: 
+subset_white_imputed_GE_F <- mice(subset_white_to_impute_GE_F, m = 1, method = 'pmm', maxit = 50, seed = 500)
+# Extract the complete dataset:
+subset_white_imputed_GE_F_complete <- complete(subset_white_imputed_GE_F)
+
+# Visualize the NA data patterns: 
+vis_miss(subset_white_imputed_GE_F_complete)
+```
+
+```{r}
+### Re-merge the 2 sex groups:
+subset_white_imputed_GE_complete=rbind(subset_white_imputed_GE_F_complete, subset_white_imputed_GE_M_complete)
+str(subset_white_imputed_GE_complete)
+
+# Create a dataset with only the GE-related variables: 
+all_vars_GEm= c(all_vars_GE, "MIDUSID")
+gene_vars_white_df= subset_white_mediations_GE_3[ , (names(subset_white_mediations_GE_3) %in% all_vars_GEm)]
+head(gene_vars_white_df)
+
+# Merge the imputed data with the genes:
+subset_white_imputed_complete_GE= merge(subset_white_imputed_GE_complete, gene_vars_white_df, by="MIDUSID")
+str(subset_white_imputed_complete_GE)
+```
+
+
+```{r}
+##### Create the FINAL DATASET for white population using only complete cases: 
+complete_cases_white_GE=complete.cases(subset_white_imputed_complete_GE)
+sum(complete_cases_white_GE)
+
+# Subset the dataframe to include only complete cases:
+subset_white_final_GE = subset_white_imputed_complete_GE[complete_cases_white_GE, ]
+str(subset_white_final_GE) # Contains imputed data only for the 20 selected individual stressors
+```
+FINAL N = 217 (SUBSET B)
+
+
+```{r}
+### Some subset (A) STATS: 
+
+# Age: 
+range(subset_white_final_GE$C1PRAGE)
+mean(subset_white_final_GE$C1PRAGE)
+sd(subset_white_final_GE$C1PRAGE)
+
+# Sex:
+# Females % : 
+(sum(subset_white_final_GE$C1PRSEX == 2) / sum(!is.na(subset_white_final_GE$C1PRSEX))) * 100
+
+```
+
+#### - Creation of SES variable:
+
+```{r}
+# Create the SES using the 2 variables that compound it (Education, household income). The other variable (occupational prestige) was not available for these 2 waves and nothing similar was measured in MIDUS. 
+
+# 1) Adjust income for household size: 
+subset_white_final_GE= subset_white_final_GE %>% 
+  mutate(adjusted_income = C1STINC / C1PHHSIZE)
+
+# 2) Standardize the variables (z-score):
+subset_white_final_GE = subset_white_final_GE %>%
+  mutate(
+    z_education = scale(C1PB1, center = TRUE, scale = TRUE),
+    z_income = scale(adjusted_income, center = TRUE, scale = TRUE)
+  )
+
+
+# 3) Compute SES as the average of the z-scores:
+subset_white_final_GE = subset_white_final_GE %>%
+  mutate(SES = (z_education + z_income) / 2)
+
+
+head(subset_white_final_GE[, c("C1PB1", "C1STINC", "C1PHHSIZE", "adjusted_income", "z_education", "z_income", "SES")])
+
+```
+
+
+#### -  Filter individuals with 3 Diseases: 
+
+I am removing all individuals with history (diagnosed) of: 
+- cancer
+- Parkinson's disease
+- other neurological disorder
+ 
+
+```{r}
+
+ind_diseases= read.csv("../data/individuals_diseases_few.csv")
+```
+
+
+
+```{r}
+# Remove individuals with IDs listed in ind_diseases$diseases
+subset_white_final_GE<- subset_white_final_GE[!subset_white_final_GE$MIDUSID %in% ind_diseases$diseases,]
+dim(subset_white_final_GE)
+
+```
+
+Final N = 209 individuals x 131 columns (subset B) 
+
+
+```{r}
+##### Save this RAW GE dataset (subset B) as .RData: 
+
+save(subset_white_final_GE, file = "../data/subset_white_final_GE.RData")
+
+```
+
